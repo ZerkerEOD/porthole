@@ -1,0 +1,29 @@
+# ~/.config/porthole/config.toml
+name = "desktop"            # shown in the app
+listen = ["auto"]           # every loopback/private/VPN address; or explicit IPs
+port = 7433
+workspaces = ["~/Programming"]   # parent dirs scanned for git repos (new sessions)
+profiles = []               # extra CLAUDE_CONFIG_DIR / CODEX_HOME dirs to watch
+
+[claude]
+enabled = true
+binary = "claude"
+
+[codex]
+enabled = true
+binary = "codex"
+
+[tmux]
+binary = "tmux"
+session_prefix = "ph"       # spawned sessions are named ph-<provider>-<id>
+
+[hooks]
+permission_timeout_s = 60   # how long a permission prompt waits for the phone
+
+[cswap]
+enabled = true              # auto-off when cswap is not on PATH
+poll_interval_s = 150       # cache reads; cswap owns the real network cadence
+
+[push]
+relay_url = ""              # empty = push off. The relay the app uses, without its credential
+                            # (e.g. https://relay.zerkersec.io or your own Worker).

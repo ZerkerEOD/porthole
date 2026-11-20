@@ -1,0 +1,17 @@
+# Porthole Android lanes. The AAB is built by Jenkins (flutter build appbundle);
+# these lanes only upload it. PLAY_JSON_KEY_PATH is the Play service-account JSON.
+default_platform(:android)
+
+AAB = "../build/app/outputs/bundle/release/app-release.aab".freeze
+
+platform :android do
+  desc "Upload the AAB to the Internal testing track as a draft."
+  lane :playstore_internal do
+    upload_to_play_store(track: "internal", aab: AAB, release_status: "draft", skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+  end
+
+  desc "Upload the AAB to the closed testing track 'alpha' (the 12-tester / 14-day run)."
+  lane :playstore_closed do
+    upload_to_play_store(track: "alpha", aab: AAB, release_status: "completed", skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+  end
+end

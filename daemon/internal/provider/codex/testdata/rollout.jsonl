@@ -1,0 +1,11 @@
+{"timestamp":"2026-05-08T10:54:00.101Z","type":"session_meta","payload":{"id":"019e0738-fdee-7f73-8499-2f32eb007778","timestamp":"2026-05-08T10:53:56.078Z","cwd":"/home/me/proj","originator":"codex_cli","cli_version":"0.129.0","source":"cli","model_provider":"openai","git":{"commit_hash":"abc","branch":"main"}}}
+{"timestamp":"2026-05-08T10:54:00.200Z","type":"turn_context","payload":{"turn_id":"t1","cwd":"/home/me/proj","approval_policy":"on-request","model":"gpt-5.5"}}
+{"timestamp":"2026-05-08T10:54:00.300Z","type":"event_msg","payload":{"type":"user_message","message":"list files","images":[]}}
+{"timestamp":"2026-05-08T10:54:00.400Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1","model_context_window":258400}}
+{"timestamp":"2026-05-08T10:54:01.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Listing files"}],"encrypted_content":"zzz"}}
+{"timestamp":"2026-05-08T10:54:02.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}","call_id":"c1"}}
+{"timestamp":"2026-05-08T10:54:03.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"a.txt\nb.txt\n"}}
+{"timestamp":"2026-05-08T10:54:04.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Two files.","phase":"final_answer"}}
+{"timestamp":"2026-05-08T10:54:04.100Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Two files."}],"phase":"final_answer"}}
+{"timestamp":"2026-05-08T10:54:04.200Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":50},"model_context_window":258400},"rate_limits":{"limit_id":"codex","primary":{"used_percent":1.0,"window_minutes":300,"resets_at":1778255640},"secondary":{"used_percent":0.0,"window_minutes":10080,"resets_at":1778842440},"plan_type":"plus"}}}
+{"timestamp":"2026-05-08T10:54:04.300Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","last_agent_message":"Two files."}}

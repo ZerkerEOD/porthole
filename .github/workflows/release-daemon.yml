@@ -1,0 +1,26 @@
+# Daemon releases: tag v* on main → goreleaser builds linux/darwin archives,
+# signs checksums with cosign (keyless, GitHub OIDC) and opens a DRAFT release.
+name: release daemon
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  id-token: write
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: daemon/go.mod, cache-dependency-path: daemon/go.sum }
+      - uses: sigstore/cosign-installer@v3
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          workdir: daemon
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

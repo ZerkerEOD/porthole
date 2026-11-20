@@ -1,0 +1,113 @@
+// Porthole mobile builds on the shared Jenkins: iOS on the Mac mini ('macos' agent),
+// Android on the controller ('built-in', which carries Flutter and the Android SDK; the
+// Mac has no Android toolchain). Personal lane: every credential id below is prefixed
+// porthole- and belongs to ZerkerEOD, not to a client. The Mac is shared with another
+// iOS lane: both use fastlane's default temporary keychain read-only through match, each
+// with its own team id, certificates repo and deploy key, and nothing here deletes or
+// relocks that keychain.
+//
+// One-time setup:
+//   - Jenkins credentials: porthole-match-password (string), porthole-asc-api-key-p8 (file),
+//     porthole-asc-key-id, porthole-asc-issuer-id, porthole-apple-team-id (strings),
+//     porthole-android-upload-keystore (file), porthole-android-keystore-password (string),
+//     porthole-play-service-account-json (file). scripts/jenkins-credentials.sh creates them from sops.
+//   - On the Mac mini: ~/.ssh/porthole_certs_deploy (deploy key for ZerkerEOD/porthole-certs)
+//     and one `fastlane bootstrap_signing` run; scripts/mac-seed-signing.sh does both.
+// Trigger: tags app/v* and manual runs.
+pipeline {
+    agent none
+    options { timestamps(); disableConcurrentBuilds(); buildDiscarder(logRotator(numToKeepStr: '20')) }
+    parameters {
+        booleanParam(name: 'UPLOAD_TESTFLIGHT', defaultValue: true, description: 'Upload the IPA to TestFlight')
+        booleanParam(name: 'BUILD_ANDROID', defaultValue: true, description: 'Build the Android AAB')
+        choice(name: 'PLAY_TRACK', choices: ['none', 'internal', 'closed'], description: 'Upload the AAB to this Play track')
+    }
+    environment {
+        LC_ALL = 'en_US.UTF-8'
+        LANG = 'en_US.UTF-8'
+    }
+    stages {
+        stage('ios') {
+            agent { label 'macos' }
+            steps {
+                script { env.IOS_BUILT_OK = 'false' }
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE', message: 'iOS build failed') {
+                    checkout scm
+                    withCredentials([
+                        string(credentialsId: 'porthole-match-password', variable: 'MATCH_PASSWORD'),
+                        file(credentialsId: 'porthole-asc-api-key-p8', variable: 'ASC_API_KEY_PATH'),
+                        string(credentialsId: 'porthole-asc-key-id', variable: 'ASC_KEY_ID'),
+                        string(credentialsId: 'porthole-asc-issuer-id', variable: 'ASC_ISSUER_ID'),
+                        string(credentialsId: 'porthole-apple-team-id', variable: 'FASTLANE_TEAM_ID'),
+                    ]) {
+                        sh '''
+                            set -e
+                            # Non-login shell: same toolchain PATH the Mac's ~/.zprofile sets.
+                            export PATH="$HOME/flutter/bin:$HOME/.local/share/gem/ruby/4.0.0/bin:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:$PATH"
+                            export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/porthole_certs_deploy -o IdentitiesOnly=yes"
+                            export CI=true FASTLANE_SKIP_UPDATE_CHECK=1 FASTLANE_DISABLE_COLORS=1
+                            cd app
+                            flutter --version
+                            flutter pub get
+                            cd ios
+                            bundle config set --local path 'vendor/bundle'
+                            bundle install
+                            bundle exec pod install --repo-update
+                            bundle exec fastlane build build_number:auto
+                            if [ "${UPLOAD_TESTFLIGHT}" = "true" ]; then
+                                bundle exec fastlane testflight_upload
+                            fi
+                        '''
+                    }
+                    archiveArtifacts artifacts: 'app/build/ios/ipa/*.ipa', fingerprint: true
+                    script { env.IOS_BUILT_OK = 'true' }
+                }
+            }
+            post {
+                // Build products go; vendor/bundle and Pods stay so the next run is quick.
+                always { cleanWs(deleteDirs: true, notFailBuild: true, patterns: [[pattern: 'app/build/**', type: 'INCLUDE']]) }
+            }
+        }
+        stage('android') {
+            agent { label 'built-in' }
+            when { expression { params.BUILD_ANDROID } }
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE', message: 'Android build failed') {
+                    checkout scm
+                    withCredentials([
+                        file(credentialsId: 'porthole-android-upload-keystore', variable: 'KEYSTORE_FILE'),
+                        string(credentialsId: 'porthole-android-keystore-password', variable: 'KS_PASS'),
+                    ]) {
+                        sh '''
+                            set -e
+                            cd app
+                            cp "$KEYSTORE_FILE" android/upload.jks
+                            printf 'storeFile=upload.jks\\nstorePassword=%s\\nkeyAlias=upload\\nkeyPassword=%s\\n' "$KS_PASS" "$KS_PASS" > android/key.properties
+                            flutter --version
+                            flutter pub get
+                            flutter build appbundle --release --build-number="$BUILD_NUMBER" --dart-define-from-file=dart_defines/store.json
+                        '''
+                    }
+                    archiveArtifacts artifacts: 'app/build/app/outputs/bundle/release/*.aab', fingerprint: true
+                    script {
+                        if (params.PLAY_TRACK != 'none') {
+                            withCredentials([file(credentialsId: 'porthole-play-service-account-json', variable: 'PLAY_JSON_KEY_PATH')]) {
+                                sh '''
+                                    set -e
+                                    cd app/android
+                                    bundle config set --local path 'vendor/bundle'
+                                    bundle install
+                                    if [ "${PLAY_TRACK}" = "closed" ]; then bundle exec fastlane playstore_closed; else bundle exec fastlane playstore_internal; fi
+                                '''
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                // The keystore and its password never outlive the run, even a failed one.
+                always { sh 'rm -f app/android/key.properties app/android/upload.jks' }
+            }
+        }
+    }
+}

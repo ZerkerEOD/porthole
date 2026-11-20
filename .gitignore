@@ -1,0 +1,46 @@
+# Go
+daemon/porthole
+daemon/dist/
+# Flutter
+app/.dart_tool/
+app/build/
+app/.flutter-plugins*
+app/.packages
+app/ios/Pods/
+app/ios/.symlinks/
+app/android/.gradle/
+app/android/local.properties
+app/android/key.properties
+app/android/*.jks
+app/android/*.keystore
+# Signing material and account keys: never in the repo (staging lives in ~/porthole-keys)
+**/*.jks
+**/*.keystore
+**/*.p8
+**/AuthKey_*
+**/*.p12
+**/*.mobileprovision
+**/*-adminsdk-*.json
+**/*gserviceaccount*
+**/google-services.json
+**/GoogleService-Info.plist
+porthole-keys/
+**/porthole-keys/
+**/key.properties
+**/.env
+**/*.env
+app/ios/fastlane/report.xml
+app/ios/fastlane/*.ipa
+app/ios/Podfile.lock
+app/ios/vendor/
+app/android/vendor/
+app/**/.bundle/
+app/**/*.iml
+app/.idea/
+# Relay
+relay/node_modules/
+relay/.wrangler/
+relay/.dev.vars
+# misc
+*.log
+.DS_Store

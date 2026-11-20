@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+
+<circle cx="512.0" cy="512.0" r="183.6" fill="none"/>
+<circle cx="512.0" cy="512.0" r="237.6" fill="none" stroke="#FFFFFF" stroke-width="64.8"/>
+<circle cx="749.6" cy="512.0" r="15.8" fill="#FFFFFF"/><circle cx="680.0" cy="680.0" r="15.8" fill="#FFFFFF"/><circle cx="512.0" cy="749.6" r="15.8" fill="#FFFFFF"/><circle cx="344.0" cy="680.0" r="15.8" fill="#FFFFFF"/><circle cx="274.4" cy="512.0" r="15.8" fill="#FFFFFF"/><circle cx="344.0" cy="344.0" r="15.8" fill="#FFFFFF"/><circle cx="512.0" cy="274.4" r="15.8" fill="#FFFFFF"/><circle cx="680.0" cy="344.0" r="15.8" fill="#FFFFFF"/>
+<polyline points="425.6,432.8 504.8,512.0 425.6,591.2" fill="none" stroke="#FFFFFF" stroke-width="28.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="540.8" y="562.4" width="79.2" height="28.8" rx="14.4" fill="#FFFFFF"/>
+</svg>

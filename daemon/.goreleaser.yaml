@@ -1,0 +1,22 @@
+version: 2
+project_name: porthole
+builds:
+  - main: ./cmd/porthole
+    binary: porthole
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/ZerkerEOD/porthole/daemon/internal/version.Version={{.Version}}
+archives:
+  - formats: [tar.gz]
+    files: [packaging/*]
+checksum:
+  name_template: checksums.txt
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args: ["sign-blob", "--yes", "--output-signature=${signature}", "--output-certificate=${certificate}", "${artifact}"]
+    artifacts: checksum
+release:
+  draft: true

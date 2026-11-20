@@ -1,0 +1,15 @@
+# systemd user unit: ~/.config/systemd/user/porthole.service
+# Enable with: systemctl --user enable --now porthole
+[Unit]
+Description=Porthole daemon (remote for Claude Code and Codex sessions)
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/porthole serve
+Restart=on-failure
+RestartSec=3
+# The daemon must see your login environment (PATH with claude/codex/tmux).
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
