@@ -88,8 +88,8 @@ class PushService extends ChangeNotifier {
     try {
       await Firebase.initializeApp(
         options: FirebaseOptions(
-          apiKey: BuildConfig.fbApiKey,
-          appId: BuildConfig.fbAppId,
+          apiKey: BuildConfig.platformApiKey,
+          appId: BuildConfig.platformAppId,
           messagingSenderId: BuildConfig.fbSenderId,
           projectId: BuildConfig.fbProjectId,
           iosBundleId: Platform.isIOS ? BuildConfig.fbIosBundleId : null,

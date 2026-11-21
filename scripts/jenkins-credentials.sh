@@ -48,6 +48,7 @@ creds() {
   put_file   porthole-android-upload-keystore PORTHOLE_UPLOAD_KEYSTORE_B64 upload.jks 'Porthole: Android upload keystore' base64
   put_string porthole-android-keystore-password PORTHOLE_UPLOAD_KEYSTORE_PASSWORD 'Porthole: upload keystore password'
   put_file   porthole-play-service-account-json PORTHOLE_PLAY_SERVICE_ACCOUNT_JSON play.json 'Porthole: Play upload service account'
+  put_file   porthole-store-defines-json PORTHOLE_STORE_DEFINES_JSON store.json 'Porthole: Firebase client ids for --dart-define-from-file (not in git)'
 }
 
 job() {

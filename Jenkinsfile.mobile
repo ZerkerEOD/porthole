@@ -10,7 +10,8 @@
 //   - Jenkins credentials: porthole-match-password (string), porthole-asc-api-key-p8 (file),
 //     porthole-asc-key-id, porthole-asc-issuer-id, porthole-apple-team-id (strings),
 //     porthole-android-upload-keystore (file), porthole-android-keystore-password (string),
-//     porthole-play-service-account-json (file). scripts/jenkins-credentials.sh creates them from sops.
+//     porthole-play-service-account-json, porthole-store-defines-json (files).
+//     scripts/jenkins-credentials.sh creates them from sops.
 //   - On the Mac mini: ~/.ssh/porthole_certs_deploy (deploy key for ZerkerEOD/porthole-certs)
 //     and one `fastlane bootstrap_signing` run; scripts/mac-seed-signing.sh does both.
 // Trigger: tags app/v* and manual runs.
@@ -39,9 +40,11 @@ pipeline {
                         string(credentialsId: 'porthole-asc-key-id', variable: 'ASC_KEY_ID'),
                         string(credentialsId: 'porthole-asc-issuer-id', variable: 'ASC_ISSUER_ID'),
                         string(credentialsId: 'porthole-apple-team-id', variable: 'FASTLANE_TEAM_ID'),
+                        file(credentialsId: 'porthole-store-defines-json', variable: 'STORE_DEFINES'),
                     ]) {
                         sh '''
                             set -e
+                            cp "$STORE_DEFINES" app/dart_defines/store.json
                             # Non-login shell: same toolchain PATH the Mac's ~/.zprofile sets.
                             export PATH="$HOME/flutter/bin:$HOME/.local/share/gem/ruby/4.0.0/bin:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:$PATH"
                             export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/porthole_certs_deploy -o IdentitiesOnly=yes"
@@ -65,7 +68,10 @@ pipeline {
             }
             post {
                 // Build products go; vendor/bundle and Pods stay so the next run is quick.
-                always { cleanWs(deleteDirs: true, notFailBuild: true, patterns: [[pattern: 'app/build/**', type: 'INCLUDE']]) }
+                always {
+                    sh 'rm -f app/dart_defines/store.json'
+                    cleanWs(deleteDirs: true, notFailBuild: true, patterns: [[pattern: 'app/build/**', type: 'INCLUDE']])
+                }
             }
         }
         stage('android') {
@@ -77,10 +83,12 @@ pipeline {
                     withCredentials([
                         file(credentialsId: 'porthole-android-upload-keystore', variable: 'KEYSTORE_FILE'),
                         string(credentialsId: 'porthole-android-keystore-password', variable: 'KS_PASS'),
+                        file(credentialsId: 'porthole-store-defines-json', variable: 'STORE_DEFINES'),
                     ]) {
                         sh '''
                             set -e
                             cd app
+                            cp "$STORE_DEFINES" dart_defines/store.json
                             cp "$KEYSTORE_FILE" android/upload.jks
                             printf 'storeFile=upload.jks\\nstorePassword=%s\\nkeyAlias=upload\\nkeyPassword=%s\\n' "$KS_PASS" "$KS_PASS" > android/key.properties
                             flutter --version
@@ -106,7 +114,7 @@ pipeline {
             }
             post {
                 // The keystore and its password never outlive the run, even a failed one.
-                always { sh 'rm -f app/android/key.properties app/android/upload.jks' }
+                always { sh 'rm -f app/android/key.properties app/android/upload.jks app/dart_defines/store.json' }
             }
         }
     }

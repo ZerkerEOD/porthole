@@ -23,5 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
-        with: { channel: stable, cache: true }
+        # Same Flutter as the Jenkins agents (the Mac mini pins 3.44.6); newer stables deprecate
+        # package:flutter/material and turn the analyzer red on infos.
+        with: { flutter-version: 3.44.6, channel: stable, cache: true }
       - run: cd app && flutter pub get && flutter analyze && flutter test

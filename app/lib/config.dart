@@ -3,9 +3,15 @@
 /// defaults produce a build with push off and no demo machine.
 library;
 
+import 'dart:io' show Platform;
+
 class BuildConfig {
+  // Android values come from google-services.json, iOS values from GoogleService-Info.plist;
+  // the Firebase app id and API key differ per platform, the sender and project do not.
   static const fbApiKey = String.fromEnvironment('FB_API_KEY');
   static const fbAppId = String.fromEnvironment('FB_APP_ID');
+  static const fbIosApiKey = String.fromEnvironment('FB_IOS_API_KEY');
+  static const fbIosAppId = String.fromEnvironment('FB_IOS_APP_ID');
   static const fbSenderId = String.fromEnvironment('FB_SENDER_ID');
   static const fbProjectId = String.fromEnvironment('FB_PROJECT_ID');
   static const fbIosBundleId = String.fromEnvironment('FB_IOS_BUNDLE_ID');
@@ -18,5 +24,7 @@ class BuildConfig {
 
   /// Push is only possible when Firebase options are compiled in. The relay
   /// itself is chosen by the user in Settings.
-  static bool get pushCapable => fbApiKey.isNotEmpty && fbAppId.isNotEmpty && fbSenderId.isNotEmpty && fbProjectId.isNotEmpty;
+  static String get platformApiKey => Platform.isIOS ? fbIosApiKey : fbApiKey;
+  static String get platformAppId => Platform.isIOS ? fbIosAppId : fbAppId;
+  static bool get pushCapable => platformApiKey.isNotEmpty && platformAppId.isNotEmpty && fbSenderId.isNotEmpty && fbProjectId.isNotEmpty;
 }

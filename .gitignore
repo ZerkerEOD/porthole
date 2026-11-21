@@ -29,6 +29,8 @@ porthole-keys/
 **/key.properties
 **/.env
 **/*.env
+# Firebase client ids for store builds: scripts/store-defines.sh writes it from sops
+app/dart_defines/store.json
 app/ios/fastlane/report.xml
 app/ios/fastlane/*.ipa
 app/ios/Podfile.lock
