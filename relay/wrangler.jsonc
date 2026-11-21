@@ -1,5 +1,5 @@
 {
-  // Porthole push relay. Deploy with your own secrets (see docs/self-host-relay.md):
+  // Porthole push relay. Deploy with your own secrets (see docs/self-host/relay.md):
   //   wrangler secret put GRANT_SIGNING_KEY      Ed25519 private key, PKCS8 base64
   //   wrangler secret put FCM_SERVICE_ACCOUNT    Firebase service account JSON
   //   wrangler secret put ENTITLEMENT_SECRET     shared with your entitlement service

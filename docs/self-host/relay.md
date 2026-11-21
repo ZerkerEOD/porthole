@@ -2,8 +2,9 @@
 
 The relay is only needed for background push on phones. Everything else in
 Porthole works without it. The app takes any relay URL in **Settings → Push
-relay**; the project hosts one for its supporters (zerkersec.io/supporter
-hands out a personal URL), and this page is how to run your own.
+relay**; the project hosts one for its supporters (<https://zerkersec.io/supporter>
+hands out a personal URL; see [Push notifications](../guide/push.md)), and this
+page is how to run your own.
 
 ## The relay URL
 

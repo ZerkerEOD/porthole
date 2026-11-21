@@ -1,0 +1,80 @@
+site_name: Porthole
+site_url: https://zerkersec.io/porthole/docs/
+site_description: A self-hosted phone remote for Claude Code and Codex sessions on your own machine
+site_author: ZerkerEOD
+repo_name: ZerkerEOD/porthole
+repo_url: https://github.com/ZerkerEOD/porthole
+edit_uri: edit/main/docs/
+
+# Theme files are injected at serve time by the zerkersec docs Worker
+# (github.com/ZerkerEOD/docs-theme); nothing theme-related lives in this repo.
+theme:
+  name: material
+  font: false
+  palette:
+    scheme: slate
+    primary: custom
+    accent: custom
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+  - include-markdown
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Install the daemon: getting-started/install.md
+      - Pair a phone: getting-started/pairing.md
+      - The app: getting-started/app.md
+  - Guide:
+      - Sessions: guide/sessions.md
+      - Push notifications: guide/push.md
+      - Configuration: guide/config.md
+      - CLI reference: guide/cli.md
+  - Self-hosting:
+      - Push relay: self-host/relay.md
+  - Reference:
+      - Troubleshooting: reference/troubleshooting.md
+      - Security: reference/security.md
+      - iOS background behavior: reference/ios-background.md
+      - Store privacy answers: reference/privacy-labels.md
+  - Privacy policy: privacy-policy.md
+  - Terms of service: terms.md
+
+# Store runbooks are maintainer material: built so links resolve, not listed.
+not_in_nav: |
+  store/
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ZerkerEOD/porthole

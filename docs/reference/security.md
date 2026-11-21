@@ -1,7 +1,10 @@
-# Porthole threat model
+# Security
 
-Produced with the `rafter-secure-design` auth and threat-modeling walks before
-any auth or control-plane code was written. Update it when a boundary changes.
+Porthole's threat model, produced with the `rafter-secure-design` auth and
+threat-modeling walks before any auth or control-plane code was written. It is
+updated when a boundary changes. For the practical side (pairing, revoking a
+phone, what a relay sees) see [Pair a phone](../getting-started/pairing.md)
+and [Push notifications](../guide/push.md).
 
 ## Data-flow diagram
 
@@ -108,8 +111,9 @@ Trust boundaries:
   element, never through a shell. Session and pane targets are validated
   against the set the daemon discovered, not taken from the client as free
   text. Spawn commands use a fixed argv (`claude`, `codex` plus allowlisted
-  flags) with the working directory validated to be inside a configured
-  workspace after symlink resolution.
+  flags) with the working directory validated after symlink resolution: it
+  must be inside a configured workspace or added repository, or be exactly a
+  directory an agent session has already run in on this machine.
 - Transcript reads are read-only. Offsets are tracked per real path so a
   symlinked profile is not read twice.
 
@@ -159,7 +163,9 @@ Trust boundaries:
 - Approve a permission from the phone → stale approval applied to a different
   prompt: approvals carry the hook's request id and expire with it.
 - Spawn a session in a repo → path traversal outside workspaces: resolved path
-  must be inside a configured workspace.
+  must be inside a configured workspace or added repository, or equal a
+  directory of a known session. A paired phone can therefore start an agent
+  only where you already run one or where you ran `porthole add`.
 - Subscribe to pane bytes → memory exhaustion from a fast TUI: bounded ring
   buffer per subscriber with snapshot resync.
 

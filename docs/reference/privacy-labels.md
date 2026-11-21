@@ -1,6 +1,6 @@
-# Store privacy answers for Porthole
+# Store privacy answers
 
-Answer sheet for App Store Connect (App Privacy) and Google Play Console (Data safety), kept in
+Maintainer answer sheet for App Store Connect (App Privacy) and Google Play Console (Data safety), kept in
 step with <https://zerkersec.io/privacy>. Update both forms whenever section 6 or 7 of the policy
 changes. Last reviewed 2026-11-12.
 

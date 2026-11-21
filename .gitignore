@@ -46,3 +46,5 @@ relay/.dev.vars
 # misc
 *.log
 .DS_Store
+# MkDocs build output
+site/

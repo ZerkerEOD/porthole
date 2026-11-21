@@ -1,0 +1,128 @@
+# Troubleshooting
+
+Start with `porthole doctor` on the machine and `porthole status`; most problems
+show up there. Daemon logs: `journalctl --user -u porthole -f` on Linux,
+`/tmp/porthole.log` for the launchd agent on macOS, or run `porthole serve
+--log-level debug` in a terminal.
+
+## Pairing and connecting
+
+**`porthole pair` says "no VPN or private address is bound"**
+:   The daemon found nothing but loopback to listen on. Bring the VPN up (or
+    join the Wi-Fi) and restart the daemon; `listen = ["auto"]` picks up
+    private and VPN addresses at start.
+
+**The app cannot reach the machine**
+:   The phone needs a private route to the host shown by `porthole pair`: the
+    same network, or the VPN connected on the phone too. Public addresses are
+    refused by design. Check that TCP port 7433 (or your `port`) is open in
+    the host firewall on that interface, and that `porthole status` lists the
+    address you are using.
+
+**"Certificate fingerprint mismatch"**
+:   The daemon's certificate changed, usually because its state directory
+    (`~/.local/state/porthole/`) was deleted or the daemon moved to a new
+    machine. Forget the machine in the app and pair again.
+
+**The pairing code is rejected**
+:   Codes are single use and expire after two minutes. Five wrong attempts in
+    a minute lock that source address out for a minute. Run `porthole pair`
+    again.
+
+**A phone was lost**
+:   `porthole devices` then `porthole devices revoke <id>`. Its connections
+    close within a second and its token stops working.
+
+## Sessions
+
+**A session is read-only**
+:   Only sessions running inside tmux can be controlled. Start them with
+    `porthole wrap claude` (or `codex`), or from the app's **New session**. A
+    finished session can be restarted under tmux with **Resume in tmux…**.
+    See [Sessions](../guide/sessions.md#controllable-or-read-only).
+
+**A session is missing**
+:   The daemon reads `~/.claude/projects` and `~/.codex/sessions`. A CLI
+    using another `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is found while it runs;
+    add the directory to `profiles` in config.toml to watch it always. Check
+    `porthole sessions`.
+
+**No repositories in New session**
+:   Nothing has been recorded and no session has run anywhere yet. Run
+    `porthole add` inside a repository, or `porthole add --workspace ~/code`
+    for a folder of them, then check `porthole repos`.
+
+**Permission prompts do not appear on the phone**
+:   Hooks apply only to sessions started after `porthole install-hooks` ran;
+    restart the session. `porthole doctor` reports whether each profile has
+    the hooks. Prompts also fall back to the terminal after
+    `permission_timeout_s` (60 s) with no answer, so an old prompt may already
+    have been answered at the keyboard.
+
+**Session status stays "unknown"**
+:   Same cause: the status comes from hooks, so sessions started before the
+    hooks were installed report nothing until restarted.
+
+**No account or quota information**
+:   [claude-swap](https://github.com/ZerkerEOD/claude-swap) must be on the
+    daemon's `PATH`. The systemd unit and launchd agent set a fixed `PATH`;
+    edit it if cswap lives elsewhere, and `[cswap] enabled` must not be
+    `false`.
+
+## Notifications
+
+**Nothing arrives while the app is closed**
+:   Direct notifications need the app open (or, on Android, **Stay connected
+    in the background**). Everything else needs a push relay: a relay URL in
+    **Settings → Push relay**, `[push] relay_url` set on every machine, and
+    the daemon restarted afterwards. See [Push notifications](../guide/push.md).
+
+**"Relay: not active"**
+:   The relay answered 402: the credential in your relay URL is not active
+    (lapsed, unknown, or mistyped). Check it with whoever runs the relay; for
+    the hosted relay that is <https://zerkersec.io/supporter>.
+
+**"Relay: could not verify"**
+:   The relay could not be reached. The app keeps using its last grant and
+    retries; **Re-check** forces a retry now.
+
+**Relay is connected but one machine never pushes**
+:   That daemon has no `relay_url`, or the machine is muted under
+    **Machines**. The daemon refuses push registrations until the URL is set
+    and it is restarted.
+
+**There is no Push relay field in Settings**
+:   This build was made without the Firebase options, so it cannot receive
+    push at all. Install a store build, or build with
+    `--dart-define-from-file=dart_defines/store.json`.
+
+**iOS alerts arrive late or not at all without a relay**
+:   Expected: iOS suspends the connection shortly after the app leaves the
+    foreground. See [iOS background behavior](ios-background.md).
+
+## The daemon
+
+**"refusing to run as root"**
+:   Run the daemon as the user who owns the sessions. The service files do
+    this already; do not wrap them in `sudo`.
+
+**"listen ... is a public address; refusing"**
+:   An explicit `listen` entry is a public IP. Use a private or VPN address
+    instead. `--allow-public-bind-i-understand` exists but is not the intended
+    deployment.
+
+**The service does not come back after a reboot (Linux)**
+:   User services only run while you are logged in unless linger is enabled:
+    `sudo loginctl enable-linger "$USER"`. `porthole install` tries this and
+    prints the command if it could not.
+
+**`claude` or `codex` not found by the daemon but fine in a shell**
+:   The service runs with a fixed `PATH` (`~/.local/bin`, `/usr/local/bin`,
+    `/usr/bin`, `/bin`, plus `/opt/homebrew/bin` on macOS). Add the directory
+    your CLI lives in to the unit's `Environment=PATH=…` line (Linux) or the
+    plist's `PATH` (macOS), or point `binary` in config.toml at the full path.
+
+**Changes to config.toml do nothing**
+:   Only `repos.toml` and `workspaces` reload live (on `SIGHUP` or when
+    `porthole add` runs). Everything else needs
+    `systemctl --user restart porthole`. See [Reloading](../guide/config.md#reloading).

@@ -17,25 +17,31 @@ The daemon only listens on loopback, private and VPN addresses and refuses to
 start on a public one. Phones pair by scanning a one-time QR code, pin the
 daemon's certificate, and can be revoked at any time.
 
-## Install (daemon)
+## Install
 
-Download a release from GitHub Releases (or `go build ./cmd/porthole` in
-`daemon/`), put `porthole` on your PATH, then:
+On the computer that runs Claude Code or Codex (Linux or macOS):
 
 ```sh
-porthole doctor          # checks tmux, claude, codex, profiles
-porthole install-hooks   # Claude Code hooks + Codex notify (idempotent)
-porthole serve           # or install packaging/porthole.service / the launchd plist
-porthole pair            # scan the QR with the app
+curl -fsSL https://raw.githubusercontent.com/ZerkerEOD/porthole/main/scripts/install.sh | sh
 ```
 
-Config lives at `~/.config/porthole/config.toml` (see
-`daemon/packaging/config.example.toml`). Set `workspaces` to the parent
-directory of your repos to start sessions from the phone.
+The script fetches the latest release for your platform, verifies the
+checksum and runs `porthole install`, which puts the binary in
+`~/.local/bin`, sets up a user service (systemd or launchd), installs the
+Claude Code hooks and the Codex notify handler, and checks the environment.
+Building from source instead: `go build -o ~/.local/bin/porthole ./cmd/porthole`
+in `daemon/`, then `porthole install`.
 
-Sessions are controllable when they run inside tmux. `porthole wrap claude`
-starts one in the current directory; sessions started from the app are always
-in tmux. Sessions outside tmux are shown read-only.
+Then:
+
+```sh
+cd ~/code/my-project && porthole add   # optional: offer this repo in the app
+porthole pair                          # scan the QR with the app
+```
+
+Everything else, from the app tour to configuration, push notifications,
+self-hosting the relay and troubleshooting, is at
+<https://zerkersec.io/porthole/docs/>.
 
 ## App
 
@@ -43,18 +49,20 @@ in tmux. Sessions outside tmux are shown read-only.
 Build it yourself with `flutter build apk` / `flutter build ios`, or install
 the free store builds. The app sells nothing and has no accounts. Push
 notifications while the app is closed need a small relay: paste a relay URL
-into Settings → Push relay. Run your own (`docs/self-host-relay.md`) or use
-the one the project hosts for its supporters (zerkersec.io/supporter hands
-out a personal relay URL). Everything else is identical and needs no cloud
-at all. The empty home screen has a "Try the demo" link that loads a sample
-machine so you can look around before pairing.
+into Settings → Push relay. Run your own
+([docs](https://zerkersec.io/porthole/docs/self-host/relay/)) or use the one
+the project hosts for its supporters (zerkersec.io/supporter hands out a
+personal relay URL). Everything else is identical and needs no cloud at all.
+The empty home screen has a "Try the demo" link that loads a sample machine so
+you can look around before pairing.
 
 ## Security
 
-See `docs/threat-model.md`. Short version: VPN-only bind policy, TLS 1.3 with
-certificate pinning, per-device bearer tokens stored hashed, single-use pairing
-codes, literal (never shell-interpreted) input into tmux, and a permission
-broker that falls back to the terminal prompt when no phone answers.
+See the [security page](https://zerkersec.io/porthole/docs/reference/security/)
+(`docs/reference/security.md`). Short version: VPN-only bind policy, TLS 1.3
+with certificate pinning, per-device bearer tokens stored hashed, single-use
+pairing codes, literal (never shell-interpreted) input into tmux, and a
+permission broker that falls back to the terminal prompt when no phone answers.
 
 ## License
 

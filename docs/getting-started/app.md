@@ -1,0 +1,103 @@
+# The app
+
+The Porthole app runs on Android and iOS. It sells nothing, has no accounts,
+and talks only to the daemons you paired with (and, if you turn it on, a push
+relay).
+
+## Install it
+
+- **iOS:** join the beta through the public TestFlight link,
+  <https://testflight.apple.com/join/wYZrvvYa>. The link becomes active after
+  Apple's beta review; if TestFlight says the beta is not accepting testers
+  yet, try again later.
+- **Android:** the Play closed test link will be added here once the test
+  track is live.
+
+## Build it yourself
+
+`app/` is a Flutter project (Android, iOS, and Linux desktop for development):
+
+```sh
+cd app
+flutter build apk      # Android
+flutter build ios      # iOS
+```
+
+A build made this way has everything except push: without the Firebase
+options compiled in there is no **Push relay** field in Settings at all.
+Notifications still work while the app is open, and on Android with the
+background service. To build with push you need your own Firebase project and
+`--dart-define-from-file=dart_defines/store.json`; see
+[Self-hosting the push relay](../self-host/relay.md#deploy).
+
+## First launch
+
+The empty home screen offers two things:
+
+- **Scan pairing code** starts [pairing](pairing.md).
+- **Try the demo** loads a sample machine with canned sessions so you can
+  look around before pairing anything.
+
+## Around the app
+
+### Home
+
+Every session from every connected machine, filtered by **All**, a machine,
+**Claude** or **Codex**. Sessions that need you (a permission prompt, a
+question) float to the top with a badge. Finished sessions are under
+**History**. The **New session** button starts an agent on a repository of a
+connected machine. A machine's menu offers **Connect now**, **Accounts &
+usage**, **Open machine view** and **Manage machines**.
+
+### Session
+
+The conversation rendered from the CLI's own transcript: prompts, replies,
+tool calls and results, and (with **Show thinking**) the model's thinking.
+Scroll up to **Load earlier**. The input bar types into the real TUI, so slash
+commands and your own skills work exactly as they do at the keyboard.
+
+- **Terminal view** switches to the live tmux pane for menus, prompts and
+  anything the chat view cannot show, with a key bar for Enter, Escape, arrows
+  and control keys.
+- **Interrupt (Esc)** stops the agent mid-turn.
+- **Resume in tmux…** restarts a finished session inside tmux so it becomes
+  controllable.
+- A permission request appears as a card with the tool name and input and
+  **Allow** / **Deny** buttons.
+
+The header shows the machine, session status, repository, model and the
+account doing the work. A session that is not running inside tmux shows a
+read-only notice; see [Sessions](../guide/sessions.md#controllable-or-read-only).
+
+### New session
+
+Pick the machine, **Claude Code** or **Codex**, a repository (see
+[choosing where sessions start](../guide/sessions.md#choosing-where-sessions-start)),
+a permission mode for Claude Code (**Default (ask)**, **Plan mode**, **Accept
+edits**) and an optional first prompt. The session runs inside a tmux session
+you can also attach to from a terminal.
+
+### Machines
+
+One entry per paired daemon with its reported name, version and running
+sessions. Rename it, toggle **Auto-connect** (connect when the app opens),
+**Mute notifications** (no alerts or push from this machine), **Connect now**,
+or **Forget** it. **Pair machine** adds another.
+
+### Accounts & usage
+
+With [claude-swap](https://github.com/ZerkerEOD/claude-swap) installed on the
+machine, this screen shows which account is active and how much of each quota
+window is used. Codex rate limits are shown when the CLI reports them.
+
+### Settings
+
+- **Notify while connected:** local notifications for permission prompts and
+  input requests while the app is open (or kept alive).
+- **Stay connected in the background** (Android): a foreground service keeps
+  the VPN socket open with a persistent notification, so alerts arrive without
+  any cloud service.
+- **Push relay:** notifications while the app is closed. See
+  [Push notifications](../guide/push.md).
+- **Machines:** the same list as above.
+- Links to the privacy policy, terms of service and source code.
