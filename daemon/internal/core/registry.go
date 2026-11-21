@@ -47,6 +47,11 @@ type Registry struct {
 	claudeProfiles []claude.Profile
 	codexProfiles  []codex.Profile
 	summaries      map[string]summaryEntry
+
+	// dirMu guards the reloadable directory lists (workspaces, repos).
+	dirMu      sync.RWMutex
+	workspaces []string
+	repos      []string
 }
 
 type spawnInfo struct {
@@ -65,20 +70,44 @@ type summaryEntry struct {
 // New creates a registry. Call Run to start scanning.
 func New(cfg *config.Config, log *slog.Logger) *Registry {
 	r := &Registry{
-		cfg:       cfg,
-		tm:        &tmux.Client{Binary: cfg.Tmux.Binary},
-		log:       log,
-		sessions:  map[string]*Session{},
-		followers: map[string]*follower{},
-		subs:      map[string]int{},
-		paneSubs:  map[string]int{},
-		paneHash:  map[string]uint64{},
-		spawned:   map[string]spawnInfo{},
-		summaries: map[string]summaryEntry{},
-		cs:        &cswap.Client{Binary: cfg.Cswap.Binary},
+		cfg:        cfg,
+		tm:         &tmux.Client{Binary: cfg.Tmux.Binary},
+		log:        log,
+		sessions:   map[string]*Session{},
+		followers:  map[string]*follower{},
+		subs:       map[string]int{},
+		paneSubs:   map[string]int{},
+		paneHash:   map[string]uint64{},
+		spawned:    map[string]spawnInfo{},
+		summaries:  map[string]summaryEntry{},
+		cs:         &cswap.Client{Binary: cfg.Cswap.Binary},
+		workspaces: append([]string(nil), cfg.Workspaces...),
+		repos:      append([]string(nil), cfg.Repos...),
 	}
 	r.perm = newPermissionBroker(r)
 	return r
+}
+
+// Dirs returns the configured workspaces and repositories.
+func (r *Registry) Dirs() (workspaces, repos []string) {
+	r.dirMu.RLock()
+	defer r.dirMu.RUnlock()
+	return append([]string(nil), r.workspaces...), append([]string(nil), r.repos...)
+}
+
+// Reload re-reads config.toml and repos.toml and applies the directory
+// lists. Other settings need a restart. It returns the new lists.
+func (r *Registry) Reload() (workspaces, repos []string, err error) {
+	fresh, err := config.Load(r.cfg.Path)
+	if err != nil {
+		return nil, nil, err
+	}
+	r.dirMu.Lock()
+	r.workspaces = append([]string(nil), fresh.Workspaces...)
+	r.repos = append([]string(nil), fresh.Repos...)
+	r.dirMu.Unlock()
+	r.log.Info("config reloaded", "workspaces", fresh.Workspaces, "repos", fresh.Repos)
+	return fresh.Workspaces, fresh.Repos, nil
 }
 
 // AddListener registers a listener for registry changes.
@@ -879,11 +908,10 @@ func (r *Registry) Spawn(ctx context.Context, req SpawnRequest) (Session, error)
 	return ph, nil
 }
 
-// insideWorkspace resolves dir and checks it is under a configured workspace.
+// insideWorkspace resolves dir and checks the app may start sessions there:
+// under a configured workspace, inside an added repository, or exactly a
+// directory an agent session has already run in (a "recent" repository).
 func (r *Registry) insideWorkspace(dir string) (string, error) {
-	if len(r.cfg.Workspaces) == 0 {
-		return "", errors.New("no workspaces configured")
-	}
 	real, err := filepath.EvalSymlinks(config.Expand(dir))
 	if err != nil {
 		return "", fmt.Errorf("directory: %w", err)
@@ -892,7 +920,8 @@ func (r *Registry) insideWorkspace(dir string) (string, error) {
 	if err != nil || !st.IsDir() {
 		return "", errors.New("not a directory")
 	}
-	for _, w := range r.cfg.Workspaces {
+	workspaces, repos := r.Dirs()
+	for _, w := range append(workspaces, repos...) {
 		wr, err := filepath.EvalSymlinks(w)
 		if err != nil {
 			continue
@@ -901,20 +930,36 @@ func (r *Registry) insideWorkspace(dir string) (string, error) {
 			return real, nil
 		}
 	}
-	return "", errors.New("directory is outside configured workspaces")
+	for _, s := range r.Sessions() {
+		if s.Cwd == "" {
+			continue
+		}
+		if cr, err := filepath.EvalSymlinks(s.Cwd); err == nil && cr == real {
+			return real, nil
+		}
+	}
+	if len(workspaces) == 0 && len(repos) == 0 {
+		return "", errors.New("no repositories configured: run `porthole add` inside the repository")
+	}
+	return "", errors.New("directory is outside configured repositories (run `porthole add` there)")
 }
 
-// Repo is a git repository inside a workspace.
+// Repo is a git repository the app can start sessions in.
 type Repo struct {
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	Workspace string    `json:"workspace"`
-	Branch    string    `json:"branch,omitempty"`
-	LastUsed  time.Time `json:"last_used,omitempty"`
-	LastProv  string    `json:"last_provider,omitempty"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Workspace string `json:"workspace,omitempty"`
+	// Source is "workspace" (found by scanning), "repo" (added explicitly)
+	// or "recent" (an agent session has run there).
+	Source   string    `json:"source"`
+	Branch   string    `json:"branch,omitempty"`
+	LastUsed time.Time `json:"last_used,omitempty"`
+	LastProv string    `json:"last_provider,omitempty"`
 }
 
-// Repos scans workspaces (depth 2) for git repositories.
+// Repos lists explicit repositories, git repositories under each workspace
+// (two levels deep), and the directories of known sessions, most recently
+// used first.
 func (r *Registry) Repos() []Repo {
 	var out []Repo
 	last := map[string]Session{}
@@ -927,42 +972,53 @@ func (r *Registry) Repos() []Repo {
 		}
 	}
 	seen := map[string]bool{}
-	for _, w := range r.cfg.Workspaces {
+	add := func(dir, workspace, source string) {
+		if seen[dir] {
+			return
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+			return
+		}
+		seen[dir] = true
+		rp := Repo{Name: filepath.Base(dir), Path: dir, Workspace: workspace, Source: source, Branch: gitBranch(dir)}
+		if s, ok := last[dir]; ok {
+			rp.LastUsed, rp.LastProv = s.UpdatedAt, s.Provider
+		}
+		out = append(out, rp)
+	}
+	workspaces, repos := r.Dirs()
+	for _, p := range repos {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			add(real, "", "repo")
+		}
+	}
+	for _, w := range workspaces {
 		root, err := filepath.EvalSymlinks(w)
 		if err != nil {
 			continue
 		}
-		walk := func(dir string) {
-			if seen[dir] {
-				return
-			}
-			if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-				return
-			}
-			seen[dir] = true
-			rp := Repo{Name: filepath.Base(dir), Path: dir, Workspace: w, Branch: gitBranch(dir)}
-			if s, ok := last[dir]; ok {
-				rp.LastUsed, rp.LastProv = s.UpdatedAt, s.Provider
-			}
-			out = append(out, rp)
-		}
-		walk(root)
+		add(root, w, "workspace")
 		l1, _ := os.ReadDir(root)
 		for _, d := range l1 {
 			if !d.IsDir() || strings.HasPrefix(d.Name(), ".") {
 				continue
 			}
 			p1 := filepath.Join(root, d.Name())
-			walk(p1)
+			add(p1, w, "workspace")
 			if seen[p1] {
 				continue
 			}
 			l2, _ := os.ReadDir(p1)
 			for _, d2 := range l2 {
 				if d2.IsDir() && !strings.HasPrefix(d2.Name(), ".") {
-					walk(filepath.Join(p1, d2.Name()))
+					add(filepath.Join(p1, d2.Name()), w, "workspace")
 				}
 			}
+		}
+	}
+	for cwd := range last {
+		if real, err := filepath.EvalSymlinks(cwd); err == nil {
+			add(real, "", "recent")
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

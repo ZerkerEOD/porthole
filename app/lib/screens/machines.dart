@@ -28,7 +28,10 @@ class MachinesScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           final info = await Navigator.of(context).push<DaemonInfo>(MaterialPageRoute(builder: (_) => const PairingScreen()));
-          if (info != null && context.mounted) await store.add(info);
+          if (info != null && context.mounted) {
+      await store.add(info);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Paired with ${info.name}')));
+    }
         },
         icon: const Icon(Icons.qr_code_scanner),
         label: const Text('Pair machine'),

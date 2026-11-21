@@ -59,6 +59,12 @@ type PairInfo struct {
 	ExpiresAt   time.Time `json:"exp"`
 }
 
+// ReloadResult is what a config reload applied.
+type ReloadResult struct {
+	Workspaces []string `json:"workspaces"`
+	Repos      []string `json:"repos"`
+}
+
 // Status is the daemon's self-report.
 type Status struct {
 	Version   string    `json:"version"`
@@ -116,6 +122,15 @@ func (l *Local) routes() http.Handler {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, l.reg.Sessions()) })
+	mux.HandleFunc("GET /repos", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, l.reg.Repos()) })
+	mux.HandleFunc("POST /config/reload", func(w http.ResponseWriter, r *http.Request) {
+		ws, rs, err := l.reg.Reload()
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		writeJSON(w, ReloadResult{Workspaces: ws, Repos: rs})
+	})
 	mux.HandleFunc("GET /notes", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, l.notes) })
 	mux.HandleFunc("POST /hook", l.handleClaudeHook)
 	mux.HandleFunc("POST /codex-notify", l.handleCodexNotify)

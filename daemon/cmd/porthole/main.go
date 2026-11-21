@@ -44,7 +44,7 @@ func main() {
 	}
 	root.PersistentFlags().StringVar(&flagConfig, "config", "", "config file (default ~/.config/porthole/config.toml)")
 	root.PersistentFlags().StringVar(&flagLogLevel, "log-level", "info", "debug|info|warn|error")
-	root.AddCommand(serveCmd(), pairCmd(), devicesCmd(), sessionsCmd(), statusCmd(), installHooksCmd(), uninstallHooksCmd(), hookCmd(), codexNotifyCmd(), wrapCmd(), doctorCmd(), configCmd(), clientCmd())
+	root.AddCommand(serveCmd(), pairCmd(), devicesCmd(), sessionsCmd(), statusCmd(), installHooksCmd(), uninstallHooksCmd(), hookCmd(), codexNotifyCmd(), wrapCmd(), doctorCmd(), configCmd(), clientCmd(), addCmd(), removeCmd(), reposCmd(), installCmd())
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -99,7 +99,20 @@ func serveCmd() *cobra.Command {
 			go func() { errc <- local.Run(ctx) }()
 			go func() { errc <- srv.Run(ctx) }()
 			go func() { reg.Run(ctx); errc <- nil }()
-			log.Info("porthole", "version", version.Version, "name", cfg.Name, "port", cfg.Port, "workspaces", cfg.Workspaces)
+			hup := make(chan os.Signal, 1)
+			signal.Notify(hup, syscall.SIGHUP)
+			defer signal.Stop(hup)
+			go func() {
+				for range hup {
+					if _, _, err := reg.Reload(); err != nil {
+						log.Warn("config reload failed", "err", err)
+					}
+				}
+			}()
+			log.Info("porthole", "version", version.Version, "name", cfg.Name, "port", cfg.Port, "workspaces", cfg.Workspaces, "repos", cfg.Repos)
+			if len(cfg.Workspaces) == 0 && len(cfg.Repos) == 0 {
+				log.Warn("no repositories configured: run `porthole add` inside a repository (directories with past agent sessions still appear in the app)")
+			}
 			select {
 			case <-ctx.Done():
 			case err := <-errc:
@@ -445,48 +458,52 @@ func doctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check the environment (tmux, CLIs, profiles, hooks, daemon)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(flagConfig)
-			if err != nil {
-				fmt.Println("config: ERROR", err)
-			} else {
-				fmt.Println("config:", filepath.Join(config.ConfigDir(), "config.toml"))
-				fmt.Println("workspaces:", cfg.Workspaces)
-			}
-			check := func(bin string) string {
-				if p, err := exec.LookPath(bin); err == nil {
-					return p
-				}
-				return "NOT FOUND"
-			}
-			fmt.Println("tmux:", check("tmux"))
-			fmt.Println("claude:", check("claude"))
-			fmt.Println("codex:", check("codex"))
-			fmt.Println("cswap:", check("cswap"), "(optional)")
-			for _, p := range claude.Profiles(cfg.Profiles, nil) {
-				fmt.Println("claude profile:", p.Dir, "->", p.Projects)
-				b, _ := os.ReadFile(filepath.Join(p.Dir, "settings.json"))
-				if strings.Contains(string(b), "porthole hook") {
-					fmt.Println("  hooks: installed")
-				} else {
-					fmt.Println("  hooks: not installed (run `porthole install-hooks`)")
-				}
-			}
-			for _, p := range codex.Profiles(cfg.Profiles, nil) {
-				fmt.Println("codex profile:", p.Dir, "->", p.Sessions)
-			}
-			var st server.Status
-			if err := server.NewLocalClient().Call(cmd.Context(), "GET", "/status", nil, &st, 3*time.Second); err != nil {
-				fmt.Println("daemon: not running")
-			} else {
-				fmt.Printf("daemon: running (%s) on %s\n", st.Version, strings.Join(st.Bound, ", "))
-			}
-			if len(cfg.Workspaces) == 0 {
-				fmt.Println("hint: set workspaces = [\"~/Programming\"] in config.toml to enable new sessions from the app")
-			}
-			return nil
-		},
+		RunE:  func(cmd *cobra.Command, args []string) error { return doctor(cmd.Context()) },
 	}
+}
+
+// doctor prints the environment checks; shared by `doctor` and `install`.
+func doctor(ctx context.Context) error {
+	cfg, err := config.Load(flagConfig)
+	if err != nil {
+		fmt.Println("config: ERROR", err)
+	} else {
+		fmt.Println("config:", cfg.Path)
+		fmt.Println("workspaces:", cfg.Workspaces)
+		fmt.Println("repos:", cfg.Repos, "(repos.toml:", config.ManagedPath(cfg.Path)+")")
+	}
+	check := func(bin string) string {
+		if p, err := exec.LookPath(bin); err == nil {
+			return p
+		}
+		return "NOT FOUND"
+	}
+	fmt.Println("tmux:", check("tmux"))
+	fmt.Println("claude:", check("claude"))
+	fmt.Println("codex:", check("codex"))
+	fmt.Println("cswap:", check("cswap"), "(optional)")
+	for _, p := range claude.Profiles(cfg.Profiles, nil) {
+		fmt.Println("claude profile:", p.Dir, "->", p.Projects)
+		b, _ := os.ReadFile(filepath.Join(p.Dir, "settings.json"))
+		if strings.Contains(string(b), "porthole hook") {
+			fmt.Println("  hooks: installed")
+		} else {
+			fmt.Println("  hooks: not installed (run `porthole install-hooks`)")
+		}
+	}
+	for _, p := range codex.Profiles(cfg.Profiles, nil) {
+		fmt.Println("codex profile:", p.Dir, "->", p.Sessions)
+	}
+	var st server.Status
+	if err := server.NewLocalClient().Call(ctx, "GET", "/status", nil, &st, 3*time.Second); err != nil {
+		fmt.Println("daemon: not running")
+	} else {
+		fmt.Printf("daemon: running (%s) on %s\n", st.Version, strings.Join(st.Bound, ", "))
+	}
+	if len(cfg.Workspaces) == 0 && len(cfg.Repos) == 0 {
+		fmt.Println("hint: run `porthole add` inside a repository (or `porthole add --workspace ~/Programming`) so the app can start sessions there")
+	}
+	return nil
 }
 
 func configCmd() *cobra.Command {

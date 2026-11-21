@@ -17,7 +17,7 @@ class BuildConfig {
   static const fbIosBundleId = String.fromEnvironment('FB_IOS_BUNDLE_ID');
 
   /// Where the self-hosting guide lives (linked from Settings).
-  static const relayDocsUrl = 'https://github.com/ZerkerEOD/porthole/blob/main/docs/self-host-relay.md';
+  static const relayDocsUrl = 'https://zerkersec.io/porthole/docs/latest/self-host/relay/';
 
   /// Adds the built-in demo machine at launch (screenshot runs).
   static const demo = bool.fromEnvironment('PH_DEMO');

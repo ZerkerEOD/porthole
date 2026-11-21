@@ -2,7 +2,9 @@
 name = "desktop"            # shown in the app
 listen = ["auto"]           # every loopback/private/VPN address; or explicit IPs
 port = 7433
-workspaces = ["~/Programming"]   # parent dirs scanned for git repos (new sessions)
+workspaces = ["~/Programming"]   # parent dirs scanned two levels deep for git repos
+repos = []                  # single repos to offer; `porthole add` writes them to repos.toml instead
+                            # (directories you have already run claude/codex in appear automatically)
 profiles = []               # extra CLAUDE_CONFIG_DIR / CODEX_HOME dirs to watch
 
 [claude]

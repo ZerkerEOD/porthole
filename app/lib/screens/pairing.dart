@@ -17,7 +17,9 @@ class PairingScreen extends StatefulWidget {
 
 class _PairingScreenState extends State<PairingScreen> {
   bool _busy = false;
+  bool _done = false;
   String? _error;
+  final _scanCtl = MobileScannerController();
   bool _manual = !(Platform.isAndroid || Platform.isIOS);
   final _host = TextEditingController();
   final _port = TextEditingController(text: '7433');
@@ -25,18 +27,29 @@ class _PairingScreenState extends State<PairingScreen> {
   final _code = TextEditingController();
   final _name = TextEditingController(text: Platform.isIOS ? 'iPhone' : (Platform.isAndroid ? 'Android' : Platform.localHostname));
 
+  @override
+  void dispose() {
+    _scanCtl.dispose();
+    super.dispose();
+  }
+
   Future<void> _finish(PairPayload p) async {
-    if (_busy) return;
+    if (_busy || _done) return;
     setState(() {
       _busy = true;
       _error = null;
     });
+    final store = context.read<AppStore>();
+    // The code is single use: stop decoding so a second frame of the same QR
+    // does not hit the daemon after the first attempt.
+    if (!_manual) await _scanCtl.stop();
     try {
-      final store = context.read<AppStore>();
       final info = await pair(p, _name.text.trim(), store.newLocalId());
+      _done = true;
       if (mounted) Navigator.of(context).pop(info);
     } catch (e) {
       setState(() => _error = '$e');
+      if (!_manual && mounted) await _scanCtl.start();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -76,7 +89,9 @@ class _PairingScreenState extends State<PairingScreen> {
       children: [
         Expanded(
           child: MobileScanner(
+            controller: _scanCtl,
             onDetect: (capture) {
+              if (_busy || _done) return;
               for (final b in capture.barcodes) {
                 final p = b.rawValue == null ? null : _parseQr(b.rawValue!);
                 if (p != null) {

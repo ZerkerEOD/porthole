@@ -10,6 +10,7 @@ builds:
       - -s -w -X github.com/ZerkerEOD/porthole/daemon/internal/version.Version={{.Version}}
 archives:
   - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files: [packaging/*]
 checksum:
   name_template: checksums.txt

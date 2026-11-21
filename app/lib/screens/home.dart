@@ -43,7 +43,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _pair(BuildContext context) async {
     final store = context.read<AppStore>();
     final info = await Navigator.of(context).push<DaemonInfo>(MaterialPageRoute(builder: (_) => const PairingScreen()));
-    if (info != null && context.mounted) await store.add(info);
+    if (info != null && context.mounted) {
+      await store.add(info);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Paired with ${info.name}')));
+    }
   }
 
   void _open(DaemonClient client, Session s) {

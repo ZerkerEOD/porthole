@@ -73,7 +73,7 @@ that source out for a minute.
 
 **AccountsSnapshot** `{fetched_at, claude?: {fetched_at, raw: <cswap list --json document>, active_email, schema_version}, codex?: {email, rate_limits:{plan, primary:{used_percent, window_minutes, resets_at}, secondary:{...}}, seen_at}}`
 
-**Repo** `{name, path, workspace, branch, last_used?, last_provider?}` · **Skill** `{name, description, source: user|project|plugin|builtin, provider, path?}`
+**Repo** `{name, path, workspace?, source: workspace|repo|recent, branch?, last_used?, last_provider?}` · **Skill** `{name, description, source: user|project|plugin|builtin, provider, path?}`
 
 ## REST (same auth)
 
