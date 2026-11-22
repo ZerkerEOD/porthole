@@ -86,6 +86,12 @@ show up there. Daemon logs: `journalctl --user -u porthole -f` on Linux,
 :   The relay could not be reached. The app keeps using its last grant and
     retries; **Re-check** forces a retry now.
 
+**"Apple has not issued this phone a push token yet"**
+:   The app asks Apple for a push token the first time you save a relay URL,
+    and Apple can take a few seconds. Make sure the phone is online, then
+    save the URL again. Builds older than 2026-11-22 never asked Apple at all
+    and fail here every time; update the app.
+
 **Relay is connected but one machine never pushes**
 :   That daemon has no `relay_url`, or the machine is muted under
     **Machines**. The daemon refuses push registrations until the URL is set

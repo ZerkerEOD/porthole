@@ -138,6 +138,7 @@ class PushService extends ChangeNotifier {
     await prefs.remove('push.grant');
     await prefs.remove('push.grant_exp');
     _unregisterAll();
+    await _dropToken();
     notifyListeners();
   }
 
@@ -180,15 +181,14 @@ class PushService extends ChangeNotifier {
     final t = target;
     if (!capable || !enabled || t == null) return;
     try {
-      _fcmToken ??= await FirebaseMessaging.instance.getToken();
-      if (_fcmToken == null) throw Exception('no push token');
+      final token = await _obtainToken();
       final needs = force || grant == null || grantExpires == null || grantExpires!.difference(DateTime.now()).inDays < 3;
       if (needs) {
         final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
         final req = await client.postUrl(t.base.replace(path: '${t.base.path}/v1/grant'));
         req.headers.contentType = ContentType.json;
         if (t.credential.isNotEmpty) req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${t.credential}');
-        req.write(jsonEncode({'device_id': deviceId, 'platform': Platform.isIOS ? 'ios' : 'android', 'push_token': _fcmToken}));
+        req.write(jsonEncode({'device_id': deviceId, 'platform': Platform.isIOS ? 'ios' : 'android', 'push_token': token}));
         final resp = await req.close();
         final body = await resp.transform(utf8.decoder).join();
         client.close();
@@ -219,11 +219,59 @@ class PushService extends ChangeNotifier {
         c.request('push.register', {'grant': grant, 'expires_at': grantExpires!.toUtc().toIso8601String()}).catchError((_) => <String, dynamic>{});
       }
       lastError = null;
+    } on _TokenUnavailable catch (e) {
+      relayState = grant != null ? RelayState.active : RelayState.error;
+      lastError = e.message;
     } catch (e) {
       relayState = grant != null ? RelayState.active : RelayState.error;
       lastError = "Couldn't reach the relay: $e";
     }
     notifyListeners();
+  }
+
+  /// Returns the FCM registration token, minting one on first use.
+  ///
+  /// The builds ship with FCM auto-init off (Info.plist / manifest) so no push
+  /// token exists until the user turns push on. Enabling auto-init here is the
+  /// opt-in: on iOS it is also what makes the plugin register with APNs, and
+  /// FCM cannot mint a token until that registration completes, so the APNs
+  /// token is awaited first.
+  Future<String> _obtainToken() async {
+    final cached = _fcmToken;
+    if (cached != null) return cached;
+    final fm = FirebaseMessaging.instance;
+    try {
+      if (!fm.isAutoInitEnabled) await fm.setAutoInitEnabled(true);
+      if (Platform.isIOS) {
+        String? apns;
+        for (var i = 0; i < 40 && apns == null; i++) {
+          apns = await fm.getAPNSToken();
+          if (apns == null) await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+        if (apns == null) {
+          throw const _TokenUnavailable("Apple has not issued this phone a push token yet. Check the phone is online, then save the relay URL again.");
+        }
+      }
+      final t = await fm.getToken();
+      if (t == null) throw const _TokenUnavailable("Couldn't get a push token for this phone. Try again in a moment.");
+      _fcmToken = t;
+      return t;
+    } on _TokenUnavailable {
+      rethrow;
+    } catch (e) {
+      throw _TokenUnavailable("Couldn't get a push token for this phone: $e");
+    }
+  }
+
+  /// Reverses the opt-in from [_obtainToken]: no token is kept for a phone
+  /// that is not using a relay.
+  Future<void> _dropToken() async {
+    _fcmToken = null;
+    if (!capable) return;
+    try {
+      await FirebaseMessaging.instance.setAutoInitEnabled(false);
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {}
   }
 
   Future<void> _onMessage(RemoteMessage m) async {
@@ -260,6 +308,14 @@ class PushService extends ChangeNotifier {
 @pragma('vm:entry-point')
 Future<void> _backgroundHandler(RemoteMessage m) async {
   await PushService._handle(m.data);
+}
+
+/// The platform could not provide a push token; the message is user-facing.
+class _TokenUnavailable implements Exception {
+  const _TokenUnavailable(this.message);
+  final String message;
+  @override
+  String toString() => message;
 }
 
 const _keysKey = 'push.keys.v1';
