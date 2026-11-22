@@ -21,16 +21,16 @@ from your machine when you open it. See
 
 ## Use the hosted relay
 
-The project runs a relay at `relay.zerkersec.io` for its supporters.
-<https://zerkersec.io/supporter> gives supporters a personal relay URL of the
-form
+A hosted relay runs at `relay.zerkersec.io`. Supporters get a personal relay
+URL from <https://zerkersec.io/supporter>, of the form
 
 ```
 https://PH-XXXX-XXXX-XXXX-XXXX@relay.zerkersec.io
 ```
 
 The part before the `@` is your relay credential. The app sends it to the relay
-as a bearer token.
+as a bearer token. The phone gets the URL with the credential; each daemon gets
+the base URL without it, as shown below.
 
 1. On the phone, open **Settings → Push relay**, paste the URL and tap
    **Connect**. The app asks for notification permission, fetches a grant from
@@ -44,7 +44,8 @@ as a bearer token.
     ```
 
     ```sh
-    systemctl --user restart porthole      # Linux
+    systemctl --user restart porthole                                    # Linux and WSL2
+    launchctl kickstart -k "gui/$(id -u)/io.zerkersec.porthole.daemon"  # macOS
     ```
 
     A daemon with an empty `relay_url` refuses push registrations. The app then

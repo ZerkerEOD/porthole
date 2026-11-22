@@ -11,11 +11,11 @@ purchases.
   Apple's beta review. If TestFlight says the beta is not accepting testers
   yet, try again later.
 - Android: the Play closed test link will be added here once the test track
-  is live.
+  is live. Until then, [build the app yourself](../self-host/app.md).
 
 ## Build it yourself
 
-`app/` is a Flutter project. `flutter build apk` or `flutter build ios` gives
+`app/` is a Flutter project. `flutter build apk` or `flutter build ipa` gives
 you a build without push. To build with push against your own Firebase project
 and relay, follow [Build the app yourself](../self-host/app.md).
 

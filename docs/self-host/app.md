@@ -115,7 +115,7 @@ flutter build apk --release --dart-define-from-file=dart_defines/store.json
 adb install build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Without `android/key.properties` the release build is signed with the debug
+Without `app/android/key.properties` the release build is signed with the debug
 key (`buildTypes.release` in `app/android/app/build.gradle.kts`), which is
 enough to install on your own phone. To sign with your own keystore, create
 `app/android/key.properties` (gitignored) with the four keys the build reads:

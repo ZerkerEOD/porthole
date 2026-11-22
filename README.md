@@ -1,11 +1,8 @@
 # Porthole
 
-Follow and control Claude Code and Codex sessions from a phone. A daemon runs
-on the machine where the agents run; the app connects to it over your LAN or
-VPN on TCP port 7433, reads the agents' transcript files, and sends input into
-the session's tmux window. You can read a conversation including tool calls and
-thinking, type prompts and slash commands, open a terminal view of the pane,
-answer Claude Code permission prompts, and start new sessions in a repository.
+Follow and control Claude Code and Codex sessions from a phone. A daemon on
+the machine where the agents run reads their transcript files and drives their
+tmux sessions; the app connects to it over your LAN or VPN.
 
 Documentation: <https://zerkersec.io/porthole/docs/>
 
@@ -28,7 +25,7 @@ in `daemon/`, then `porthole install`.
 Then:
 
 ```sh
-cd ~/code/my-project && porthole add   # optional: offer this repository in the app
+cd ~/code/my-project && porthole add   # optional; pairing works without it
 porthole pair                          # scan the QR with the app
 ```
 
@@ -43,8 +40,8 @@ it with your own Firebase project and relay, see
 Notifications while the app is closed go through a push relay. Paste a relay
 URL into Settings → Push relay. Run your own
 ([docs](https://zerkersec.io/porthole/docs/latest/self-host/relay/)) or use the
-one the project hosts for its supporters
-([zerkersec.io/supporter](https://zerkersec.io/supporter)).
+hosted one, available to supporters at
+[zerkersec.io/supporter](https://zerkersec.io/supporter).
 
 ## Security
 

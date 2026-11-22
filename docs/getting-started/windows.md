@@ -21,6 +21,9 @@ systemd=true
 EOT
 ```
 
+If `/etc/wsl.conf` already exists, add the two lines to it instead of
+replacing it.
+
 Then from PowerShell:
 
 ```powershell
@@ -53,9 +56,11 @@ that needs root it prints the `sudo` command to run.
 
 ## Networking
 
-The phone must reach the daemon on a private address, and the daemon only
-accepts connections whose source is loopback, link-local, RFC1918, 100.64/10
-(Tailscale) or an IPv6 ULA address. Pick one of these two setups.
+The phone must reach the daemon on a private address. The daemon accepts
+connections from loopback, link-local, RFC 1918, CGNAT (100.64.0.0/10, the
+range Tailscale uses) and IPv6 ULA addresses, and binds VPN interfaces by name
+(see [Security](../reference/security.md#network-exposure)). Pick one of these
+two setups.
 
 ### Tailscale inside WSL
 
@@ -101,7 +106,6 @@ firewall:
 Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow
 ```
 
-The phone then pairs over the same Wi-Fi, like a Linux host would.
 
 ### NAT mode is not supported
 

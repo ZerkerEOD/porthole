@@ -1,7 +1,7 @@
 # Security
 
-How Porthole secures the paths between the phone, the daemon, the agent CLIs
-and the optional push relay. The pairing steps are in
+This page describes how Porthole secures the paths between the phone, the
+daemon, the agent CLIs and the optional push relay. The pairing steps are in
 [Pair a phone](../getting-started/pairing.md) and the push setup is in
 [Push notifications](../guide/push.md).
 

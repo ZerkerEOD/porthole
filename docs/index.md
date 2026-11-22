@@ -29,12 +29,13 @@ On the computer:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ZerkerEOD/porthole/main/scripts/install.sh | sh
-cd ~/code/my-project && porthole add     # optional: offer this repository in the app
+cd ~/code/my-project && porthole add     # optional; pairing works without it
 porthole pair                            # prints a QR code
 ```
 
-On the phone, install the app, tap **Scan pairing code** and point it at the
-QR. The longer version:
+On the phone, install the app (see [The app](getting-started/app.md#install-it)
+for the beta links), tap **Scan pairing code** and point it at the QR. The
+longer version:
 
 1. [Install the daemon](getting-started/install.md)
 2. [Pair a phone](getting-started/pairing.md)
