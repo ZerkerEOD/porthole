@@ -48,3 +48,4 @@ relay/.dev.vars
 .DS_Store
 # MkDocs build output
 site/
+.claude/settings.local.json
