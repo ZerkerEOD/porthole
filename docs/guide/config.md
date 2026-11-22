@@ -1,19 +1,19 @@
 # Configuration
 
-The daemon reads `~/.config/porthole/config.toml` (or the file given with
-`--config`). The file is optional: with no file at all the daemon listens on
-every private address on port 7433, watches the default Claude Code and Codex
-profiles, and offers the repositories it has seen sessions in. `porthole
-config` prints the effective values and the paths in use.
+The daemon reads `~/.config/porthole/config.toml`, or the file given with
+`--config`. The file is optional. With no file the daemon listens on every
+private address on port 7433, watches the default Claude Code and Codex
+profiles, and offers the repositories it has seen sessions in.
+`porthole config` prints the effective values and the paths in use.
 
-Two files live next to each other:
+Two files sit next to each other:
 
 | File | Who writes it | Holds |
 |---|---|---|
-| `config.toml` | you | everything below; never rewritten by the CLI |
+| `config.toml` | you | everything below; the CLI does not edit it |
 | `repos.toml` | `porthole add` and `porthole remove` | `repos` and `workspaces` lists, merged with the ones in `config.toml` |
 
-## Reference
+## Example
 
 The full example ships as `daemon/packaging/config.example.toml`:
 
@@ -51,86 +51,52 @@ relay_url = ""              # empty = push off. The relay the app uses, without 
                             # (e.g. https://relay.zerkersec.io or your own Worker).
 ```
 
+## Keys
+
 ### Top level
 
-`name`
-:   The machine name the app shows. Default: the hostname.
-
-`listen`
-:   `["auto"]` binds every loopback, RFC1918, CGNAT (`100.64.0.0/10`), IPv6
-    ULA and VPN-interface address (`tailscale*`, `wg*`, `utun*`, `tun*`,
-    `nebula*`, `zt*`) on the machine. Give explicit IP addresses instead to bind
-    only those. A public address is refused unless `serve` is run with
-    `--allow-public-bind-i-understand`, which is not the intended deployment:
-    use a VPN. Default: `["auto"]`.
-
-`port`
-:   TCP port for the app. Default: `7433`. Open it in the host firewall on the
-    interface the phone uses.
-
-`workspaces`
-:   Parent directories scanned two levels deep for git repositories, offered
-    in **New session**. `~` and environment variables are expanded.
-    `porthole add --workspace` records the same thing in `repos.toml` instead.
-    Default: none.
-
-`repos`
-:   Individual repositories offered in **New session** without scanning.
-    `porthole add` records them in `repos.toml`; this key is for listing them
-    by hand. Default: none.
-
-`profiles`
-:   Extra `CLAUDE_CONFIG_DIR` or `CODEX_HOME` directories to watch for
-    transcripts, on top of `~/.claude` and `~/.codex` and anything a running
-    process is using. Default: none.
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | the hostname | The machine name the app shows. |
+| `listen` | `["auto"]` | `auto` binds every loopback, RFC1918, CGNAT (`100.64.0.0/10`), IPv6 ULA and VPN-interface address (`tailscale*`, `wg*`, `utun*`, `tun*`, `nebula*`, `zt*`). Give explicit IP addresses to bind only those. A public address is refused unless `serve` runs with `--allow-public-bind-i-understand`; see [Security](../reference/security.md). |
+| `port` | `7433` | TCP port for the app. Open it in the host firewall on the interface the phone uses. |
+| `workspaces` | none | Parent directories scanned two levels deep for git repositories, offered in **New session**. `~` and environment variables are expanded. `porthole add --workspace` records the same thing in `repos.toml`. |
+| `repos` | none | Individual repositories offered in **New session** without scanning. `porthole add` records them in `repos.toml`; this key is for listing them by hand. |
+| `profiles` | none | Extra `CLAUDE_CONFIG_DIR` or `CODEX_HOME` directories to watch for transcripts, on top of `~/.claude`, `~/.codex` and anything a running process is using. |
 
 ### `[claude]` and `[codex]`
 
-`enabled`
-:   Turn the integration off entirely. Default: `true`.
-
-`binary`
-:   Name or path of the CLI used to start new sessions. Default: `claude` /
-    `codex`.
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Turn the integration off. |
+| `binary` | `claude` / `codex` | Name or path of the CLI used to start new sessions. |
 
 ### `[tmux]`
 
-`binary`
-:   Name or path of tmux. Default: `tmux`.
-
-`session_prefix`
-:   Sessions started from the app are named `<prefix>-<provider>-<id>`.
-    Default: `ph`.
+| Key | Default | Meaning |
+|---|---|---|
+| `binary` | `tmux` | Name or path of tmux. |
+| `session_prefix` | `ph` | Sessions started from the app are named `<prefix>-<provider>-<id>`. |
 
 ### `[hooks]`
 
-`permission_timeout_s`
-:   How long a Claude Code permission prompt waits for an answer from a phone
-    before falling back to the terminal prompt. Default: `60`.
+| Key | Default | Meaning |
+|---|---|---|
+| `permission_timeout_s` | `60` | How long a Claude Code permission prompt waits for an answer from a phone before the terminal prompt takes over. |
 
 ### `[cswap]`
 
-`enabled`
-:   Read account and quota information from
-    [claude-swap](https://github.com/ZerkerEOD/claude-swap). Automatically off
-    when `cswap` is not on `PATH`. Default: `true`.
-
-`binary`
-:   Name or path of the cswap binary. Default: `cswap`.
-
-`poll_interval_s`
-:   How often the daemon re-reads cswap's cached account list. cswap decides
-    when to hit the network; this only controls how fresh the app's view is.
-    Default: `150`.
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Read account and quota information from [claude-swap](https://github.com/ZerkerEOD/claude-swap). Off when `cswap` is not on `PATH`. |
+| `binary` | `cswap` | Name or path of the cswap binary. |
+| `poll_interval_s` | `150` | How often the daemon re-reads cswap's cached account list. cswap itself decides when to contact the network. |
 
 ### `[push]`
 
-`relay_url`
-:   Base URL of the push relay, **without** the credential that sits in the
-    app's relay URL: `https://relay.zerkersec.io` for the hosted relay, or
-    your own Worker's URL. Empty means push is off and the daemon refuses push
-    registrations from the app. Default: empty. See
-    [Push notifications](push.md).
+| Key | Default | Meaning |
+|---|---|---|
+| `relay_url` | empty | Base URL of the push relay, without the credential that sits in the app's relay URL: `https://relay.zerkersec.io` for the hosted relay, or your own Worker's URL. Empty means push is off and the daemon refuses push registrations from the app. See [Push notifications](push.md). |
 
 ## Reloading
 
@@ -160,4 +126,4 @@ launchctl kickstart -k "gui/$(id -u)/io.zerkersec.porthole.daemon"            # 
 | Service unit | `~/.config/systemd/user/porthole.service` (Linux), `~/Library/LaunchAgents/io.zerkersec.porthole.daemon.plist` (macOS) | |
 
 Deleting the state directory makes the daemon generate a new certificate and
-forget every paired phone; you will have to pair again.
+forget every paired phone. You then pair again.

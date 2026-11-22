@@ -1,7 +1,6 @@
 # Troubleshooting
 
-Start with `porthole doctor` on the machine and `porthole status`; most problems
-show up there. Daemon logs: `journalctl --user -u porthole -f` on Linux,
+Start with `porthole doctor` and `porthole status` on the machine. Daemon logs: `journalctl --user -u porthole -f` on Linux,
 `/tmp/porthole.log` for the launchd agent on macOS, or run `porthole serve
 --log-level debug` in a terminal.
 
@@ -14,13 +13,13 @@ show up there. Daemon logs: `journalctl --user -u porthole -f` on Linux,
 
 **The app cannot reach the machine**
 :   The phone needs a private route to the host shown by `porthole pair`: the
-    same network, or the VPN connected on the phone too. Public addresses are
-    refused by design. Check that TCP port 7433 (or your `port`) is open in
+    same network, or the VPN connected on the phone too. The daemon refuses
+    connections from public addresses. Check that TCP port 7433 (or your `port`) is open in
     the host firewall on that interface, and that `porthole status` lists the
     address you are using.
 
 **"Certificate fingerprint mismatch"**
-:   The daemon's certificate changed, usually because its state directory
+:   The daemon's certificate changed because its state directory
     (`~/.local/state/porthole/`) was deleted or the daemon moved to a new
     machine. Forget the machine in the app and pair again.
 
@@ -60,8 +59,8 @@ show up there. Daemon logs: `journalctl --user -u porthole -f` on Linux,
     have been answered at the keyboard.
 
 **Session status stays "unknown"**
-:   Same cause: the status comes from hooks, so sessions started before the
-    hooks were installed report nothing until restarted.
+:   The status comes from hooks, so sessions started before the hooks were
+    installed report nothing until restarted.
 
 **No account or quota information**
 :   [claude-swap](https://github.com/ZerkerEOD/claude-swap) must be on the
@@ -89,8 +88,8 @@ show up there. Daemon logs: `journalctl --user -u porthole -f` on Linux,
 **"Apple has not issued this phone a push token yet"**
 :   The app asks Apple for a push token the first time you save a relay URL,
     and Apple can take a few seconds. Make sure the phone is online, then
-    save the URL again. Builds older than 2026-11-22 never asked Apple at all
-    and fail here every time; update the app.
+    save the URL again. TestFlight build 1 never asked Apple for a token and
+    fails here every time; update the app.
 
 **Relay is connected but one machine never pushes**
 :   That daemon has no `relay_url`, or the machine is muted under
@@ -103,8 +102,7 @@ show up there. Daemon logs: `journalctl --user -u porthole -f` on Linux,
     `--dart-define-from-file=dart_defines/store.json`.
 
 **iOS alerts arrive late or not at all without a relay**
-:   Expected: iOS suspends the connection shortly after the app leaves the
-    foreground. See [iOS background behavior](ios-background.md).
+:   iOS suspends the connection shortly after the app leaves the foreground. See [iOS background behavior](ios-background.md).
 
 ## The daemon
 
@@ -114,8 +112,8 @@ show up there. Daemon logs: `journalctl --user -u porthole -f` on Linux,
 
 **"listen ... is a public address; refusing"**
 :   An explicit `listen` entry is a public IP. Use a private or VPN address
-    instead. `--allow-public-bind-i-understand` exists but is not the intended
-    deployment.
+    instead. `--allow-public-bind-i-understand` overrides the check; see
+    [Security](security.md).
 
 **The service does not come back after a reboot (Linux)**
 :   User services only run while you are logged in unless linger is enabled:

@@ -8,7 +8,7 @@
 set -eu
 REPO=ZerkerEOD/porthole
 if [ "$(id -u)" = 0 ]; then echo "run as the user who runs claude/codex, not root" >&2; exit 1; fi
-case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) echo "unsupported OS: $(uname -s)" >&2; exit 1 ;; esac
+case "$(uname -s)" in Linux) os=linux ;; Darwin) os=darwin ;; *) echo "unsupported OS: $(uname -s). Windows is supported through WSL2: run this script inside a WSL2 distribution. See https://zerkersec.io/porthole/docs/latest/getting-started/windows/" >&2; exit 1 ;; esac
 case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; esac
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 command -v tar >/dev/null || { echo "tar is required" >&2; exit 1; }

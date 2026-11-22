@@ -51,6 +51,7 @@ nav:
   - Home: index.md
   - Getting started:
       - Install the daemon: getting-started/install.md
+      - Windows (WSL2): getting-started/windows.md
       - Pair a phone: getting-started/pairing.md
       - The app: getting-started/app.md
   - Guide:
@@ -59,12 +60,12 @@ nav:
       - Configuration: guide/config.md
       - CLI reference: guide/cli.md
   - Self-hosting:
+      - Build the app yourself: self-host/app.md
       - Push relay: self-host/relay.md
   - Reference:
       - Troubleshooting: reference/troubleshooting.md
       - Security: reference/security.md
       - iOS background behavior: reference/ios-background.md
-      - Store privacy answers: reference/privacy-labels.md
   - Privacy policy: privacy-policy.md
   - Terms of service: terms.md
 

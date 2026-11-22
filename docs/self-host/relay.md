@@ -1,10 +1,9 @@
 # Self-hosting the push relay
 
-The relay is only needed for background push on phones. Everything else in
-Porthole works without it. The app takes any relay URL in **Settings → Push
-relay**; the project hosts one for its supporters (<https://zerkersec.io/supporter>
-hands out a personal URL; see [Push notifications](../guide/push.md)), and this
-page is how to run your own.
+The relay is only needed for background push on phones. The app takes any
+relay URL in **Settings → Push relay**; the project hosts one for its
+supporters (<https://zerkersec.io/supporter> hands out a personal URL; see
+[Push notifications](../guide/push.md)), and this page is how to run your own.
 
 ## The relay URL
 
@@ -29,6 +28,12 @@ the base URL (no credential) in `[push] relay_url`.
 
 Keep the origin of record for every secret outside the repo; set them with
 `wrangler secret put`.
+
+The service account must belong to the Firebase project the app was built
+with: push tokens are issued per project, and the relay can only send to
+tokens of the project it holds a service account for. The store builds carry
+the project's own Firebase options, so they only work with the hosted relay.
+To use your own relay, [build the app](app.md) with your own project.
 
 ### The entitlement contract
 
@@ -58,12 +63,9 @@ npx wrangler secret put ENTITLEMENT_SECRET   # or set ENTITLEMENT_STATIC_KEYS as
 npx wrangler deploy
 ```
 
-The store builds already carry the Firebase options; paste
-`https://<credential>@your-worker.workers.dev` into Settings → Push relay.
-A self-built app needs the Firebase options compiled in
-(`--dart-define-from-file=dart_defines/store.json` with your own project's
-`FB_API_KEY`, `FB_APP_ID`, `FB_SENDER_ID`, `FB_PROJECT_ID` and, on iOS,
-`FB_IOS_BUNDLE_ID`). Set `relay_url` in the daemon config to the base URL.
+Then [build the app](app.md) with the same Firebase project, paste
+`https://<credential>@your-worker.workers.dev` into Settings → Push relay, and
+set `[push] relay_url` in the daemon config to the base URL.
 
 ## How a push travels
 
@@ -75,7 +77,7 @@ A self-built app needs the Firebase options compiled in
    valid for at most 30 days.
 3. The app hands the grant to each paired daemon over the VPN.
 4. When a session needs you and the phone is not connected, the daemon
-   encrypts a tiny notice with the key agreed at pairing and posts
+   encrypts a notice with the key agreed at pairing and posts
    `{grant, ct}` to the relay.
 5. The relay checks the signature, expiry, deny list and rate limits, then
    sends the ciphertext through FCM. The phone decrypts it and shows the

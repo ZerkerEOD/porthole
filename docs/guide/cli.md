@@ -53,7 +53,7 @@ porthole install-hooks [--profile <dir>] [--codex-home <dir>] [--no-claude] [--n
 ```
 
 Adds the Porthole hooks to Claude Code's `settings.json` and sets Codex's
-`notify` handler. Idempotent. Hooks take effect for new sessions; running
+`notify` handler. Running it again changes nothing. Hooks take effect for new sessions; running
 sessions keep their old hook set.
 
 | Flag | Meaning |
@@ -89,12 +89,12 @@ effective configuration as JSON.
 porthole serve [--allow-public-bind-i-understand]
 ```
 
-Runs the daemon in the foreground. This is what the service runs. It refuses
+Runs the daemon in the foreground; the service runs this command. It refuses
 to start as root and refuses to bind a public address.
 
 | Flag | Meaning |
 |---|---|
-| `--allow-public-bind-i-understand` | bind and accept connections on public addresses. Not recommended; use a VPN. |
+| `--allow-public-bind-i-understand` | bind and accept connections on public addresses; see [Security](../reference/security.md) |
 
 ### `status`
 
@@ -102,8 +102,8 @@ to start as root and refuses to bind a public address.
 porthole status
 ```
 
-Version, machine name, pid, uptime, bound addresses, session and device
-counts, and whether tmux and cswap were detected.
+Prints the version, machine name, pid, uptime, bound addresses, session and
+device counts, and whether tmux and cswap were detected.
 
 ### `sessions`
 
@@ -161,8 +161,6 @@ told to reload at once; otherwise the change applies at the next start.
 | `--workspace` | record the directory as a workspace (a parent folder scanned two levels deep for git repositories) instead of a single repository |
 | `--yes`, `-y` | do not ask for confirmation |
 
-You only need this for repositories you have not run an agent in yet;
-everything the daemon has seen a session in is offered automatically.
 
 ### `remove`
 
@@ -196,7 +194,6 @@ Inside tmux already, it opens a new window instead of nesting.
 
 ## Internal commands
 
-`porthole hook` and `porthole codex-notify` are what the hooks call; they are
-hidden and never fail loudly, so the CLIs keep working when the daemon is
-down. `porthole client` is a hidden developer tool: a pinned-TLS WebSocket
+The hooks call `porthole hook` and `porthole codex-notify`. Both are hidden
+and exit without an error when the daemon is down, so the CLIs keep working. `porthole client` is a hidden developer tool: a pinned-TLS WebSocket
 client for exercising the protocol from the command line.

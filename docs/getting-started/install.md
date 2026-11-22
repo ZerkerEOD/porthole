@@ -3,7 +3,7 @@
 The daemon runs on the computer where Claude Code or Codex runs, as your own
 user. It needs:
 
-- Linux or macOS.
+- Linux, macOS, or [Windows through WSL2](windows.md).
 - `tmux`, for sessions you want to control from the phone.
 - `claude` and/or `codex` on your `PATH`.
 - A private address the phone can reach: the same Wi-Fi, or a VPN such as
@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/ZerkerEOD/porthole/main/scripts/ins
 The script downloads the latest [GitHub release](https://github.com/ZerkerEOD/porthole/releases)
 for your OS and architecture, verifies the checksum, and runs `porthole install`.
 
-Prefer to build from source? You need Go 1.27:
+To build from source instead, with Go 1.27:
 
 ```sh
 cd daemon
@@ -30,17 +30,17 @@ porthole install
 
 1. Copies the running binary to `~/.local/bin/porthole` if it is not already there.
 2. Sets up a user service so the daemon starts at login and restarts if it crashes:
-    - **Linux:** writes `~/.config/systemd/user/porthole.service`, runs
+    - Linux: writes `~/.config/systemd/user/porthole.service`, runs
       `systemctl --user daemon-reload` and `systemctl --user enable --now porthole`,
       then tries `loginctl enable-linger` so the service also runs while you are
       logged out. If linger needs root it prints the `sudo` command to run.
-    - **macOS:** writes `~/Library/LaunchAgents/io.zerkersec.porthole.daemon.plist`
+    - macOS: writes `~/Library/LaunchAgents/io.zerkersec.porthole.daemon.plist`
       and loads it.
 3. Runs the same checks as [`porthole doctor`](../guide/cli.md#doctor): tmux, the CLIs, the
    profiles it will watch, and whether the daemon answers.
-4. Installs the Claude Code hooks and the Codex notify handler, exactly like
-   [`porthole install-hooks`](../guide/cli.md#install-hooks). Hooks are what turn
-   permission prompts into something the phone can answer; they apply to sessions
+4. Installs the Claude Code hooks and the Codex notify handler, the same as
+   [`porthole install-hooks`](../guide/cli.md#install-hooks). The hooks deliver
+   permission prompts and session status to the daemon. They apply to sessions
    started after this point.
 5. Prints the next steps: `porthole add` inside a repository, then `porthole pair`.
 
@@ -65,5 +65,5 @@ allow that port on the VPN or LAN interface the phone will use.
 
 ## Next
 
-- [Tell the daemon about your repositories](../guide/sessions.md#choosing-where-sessions-start) with `porthole add` (optional: everything you have already used an agent in is listed automatically).
+- [Tell the daemon about your repositories](../guide/sessions.md#choosing-where-sessions-start) with `porthole add`. Directories you have already run an agent in are offered without it.
 - [Pair a phone](pairing.md).

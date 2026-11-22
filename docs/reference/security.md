@@ -1,187 +1,195 @@
 # Security
 
-Porthole's threat model, produced with the `rafter-secure-design` auth and
-threat-modeling walks before any auth or control-plane code was written. It is
-updated when a boundary changes. For the practical side (pairing, revoking a
-phone, what a relay sees) see [Pair a phone](../getting-started/pairing.md)
-and [Push notifications](../guide/push.md).
+How Porthole secures the paths between the phone, the daemon, the agent CLIs
+and the optional push relay. The pairing steps are in
+[Pair a phone](../getting-started/pairing.md) and the push setup is in
+[Push notifications](../guide/push.md).
 
-## Data-flow diagram
+## Components and boundaries
+
+The phone app talks to the daemon over a WebSocket on a LAN or VPN address,
+with TLS 1.3 and a self-signed certificate the app pins at pairing. The daemon
+runs as the user who owns the agent sessions and refuses to start as root. It
+reads agent transcripts from disk, receives hook events over a local unix
+socket, drives terminals through tmux, and, when a relay URL is configured,
+posts encrypted notices to the relay, which forwards them through FCM. The
+phone and the hook process cross a boundary (the pinned certificate with the
+device token, and the socket file permission); the daemon and the user's tmux
+panes and transcript files do not, since the daemon has the same access as the
+user.
 
 ```
-[Phone app] ──wss (VPN only, pinned cert, bearer device token)──┐
-                                                                 ▼
-                                                     [porthole daemon, runs as the user]
-                                                       │   │        │          │
-            transcript JSONL (read) ◄──────────────────┘   │        │          └──► [tmux] send-keys / capture-pane / pipe-pane
-            ~/.claude/projects, ~/.codex/sessions          │        │
-                                                           │        └──► [cswap list --json] (read, optional)
-   [claude / codex hook process] ──unix socket 0600──────►─┘
-                                                           │
-   [Cloudflare Worker relay] ◄──https {grant, ciphertext}──┘ (opt-in, Supporter only)
+[Phone app] ──wss, TLS 1.3, pinned certificate, bearer device token──┐
+   (LAN or VPN address only)                                          ▼
+                                                      [porthole daemon, runs as the user]
+                                                        │        │           │
+   transcript JSONL (read only) ◄───────────────────────┘        │           └──► [tmux] send-keys, paste-buffer, capture-pane
+   <profile>/projects, <codex home>/sessions                     │
+                                                                 │
+   [agent CLI hook process] ──unix socket, mode 0600────────────►┘
+                                                                 │
+   [relay (Cloudflare Worker)] ◄──https {grant, ciphertext, collapse}──┘  (only when push.relay_url is set)
           │
-          └──► [FCM] ──► [Apple/Google push] ──► [Phone]
+          └──► [FCM] ──► [Apple or Google push service] ──► [Phone]
 ```
 
-Trust boundaries:
+## Phone authentication
 
-1. Phone ↔ daemon (VPN network). Control point: TLS pinning + device token.
-2. Hook process ↔ daemon (local unix socket). Control point: filesystem permission.
-3. Daemon ↔ tmux and transcript files (same user). No boundary; the daemon is as
-   privileged as the user. This is the blast radius if the daemon is compromised.
-4. Daemon ↔ relay ↔ FCM (internet). Control point: signed grant, encrypted payload.
-5. Store app ↔ relay (internet). Control point: supporter key checked against the entitlement service, plus Play Integrity attestation when `ATTEST_MODE` is on (off by default; App Attest not implemented).
+`porthole pair` asks the daemon over the local socket for a pairing code and
+prints a QR code carrying the daemon name, the advertised addresses, the port,
+the certificate fingerprint and the code. The code is 8 characters of base32
+from 5 random bytes, valid for 120 seconds, and deleted on first use. The
+daemon keeps only a SHA-256 hash of it in memory and compares hashes in
+constant time. A source address that fails five times in one minute is refused
+until the window passes, and `POST /v1/pair` as a whole admits one request
+every two seconds with a burst of ten.
 
-## Auth decisions (docs/auth.md walk)
+A successful pairing returns a device id and a 32-byte random token, base64url
+encoded, sent to the app once. The daemon stores the token's SHA-256 in
+`devices.json` (mode 0600, written through a temporary file and a rename)
+under the state directory, `$XDG_STATE_HOME/porthole` or
+`~/.local/state/porthole`, mode 0700. The app stores the token with the hosts,
+port and fingerprint in the platform keystore. Every request carries
+`Authorization: Bearer <token>`; a WebSocket client may instead pass it as the
+subprotocol `porthole.token.<token>`. Tokens do not expire. `porthole devices`
+lists paired devices and `porthole devices revoke <id>` removes one; the daemon
+closes that device's open connections within one second, and the app treats
+the next 401 as a revocation and asks the user to pair again.
 
-- **Identity.** End users are the device owner's phones; there are no accounts.
-  Identity is the paired device. Hooks are local processes of the same OS user.
-  The relay authenticates the app by the credential in its relay URL (and,
-  when `ATTEST_MODE` is on, by platform attestation) and the daemon only
-  indirectly, via a grant the app obtained.
-- **AuthN primitive.** Opaque random 32-byte device tokens, stored on the daemon
-  as SHA-256 hashes in `devices.json` (0600), presented as `Authorization:
-  Bearer` over TLS. Not JWT: there is one verifier, revocation must be instant,
-  and nothing needs to be self-contained. Pairing codes are 8 random base32
-  chars, single use, 120 s TTL, compared in constant time, max 5 attempts per
-  minute per source address.
-- **TLS.** Daemon generates an ECDSA P-256 self-signed certificate on first run
-  (valid 10 years, SAN = the configured bind addresses). The QR carries its
-  SHA-256 SPKI fingerprint; the app pins that fingerprint and refuses anything
-  else. No CA, no system trust store. TLS 1.3 only.
-- **AuthZ model.** Flat: any paired device may do anything the daemon can do.
-  This is explicit. Per-device scopes (read-only devices, per-workspace
-  devices) are a v2 item with a `scopes` field already reserved in
-  `devices.json` so it needs no migration.
-- **Token lifetime and revocation.** Device tokens do not expire; they are
-  revoked by `porthole devices revoke <id>` or by deleting the entry, and the
-  WebSocket for that device is closed within one second. Pairing codes are
-  removed on use or expiry. Push grants expire at min(subscription renewal,
-  30 days) and are revocable by device id at the relay.
-- **Service-to-service.** Daemon → relay carries the device's grant, not a
-  daemon identity; the relay never trusts a daemon per se. Hook → daemon is
-  trusted by socket ownership (0600, in `$XDG_RUNTIME_DIR` or `~/.porthole`).
-- **Refuse-list check.** No passwords, no homegrown JWT (grants are PASETO
-  v4.public via a maintained library, or Ed25519-signed JSON with a pinned
-  algorithm), no trusted-network assumptions beyond the unix socket, no
-  tenant ids from requests.
+On first run the daemon generates an ECDSA P-256 self-signed certificate valid
+for ten years and writes `tls.crt` and `tls.key` to the state directory with
+mode 0600. The fingerprint in the QR code is the base64url SHA-256 of the
+certificate's DER encoding. The app builds its TLS context with no trusted
+roots and accepts a certificate only when its fingerprint matches the stored
+one; a different certificate fails the handshake and the app reports
+"Certificate changed. Pair again." The daemon accepts TLS 1.3 only. Deleting
+`tls.crt` and `tls.key` and restarting the daemon rotates the certificate, and
+every phone must then re-pair.
 
-## STRIDE per boundary
+## Network exposure
 
-### 1. Phone ↔ daemon
+With the default `listen = ["auto"]` the daemon binds every loopback,
+link-local IPv4, RFC 1918, CGNAT (100.64.0.0/10) and IPv6 ULA address on an
+interface that is up, plus every address on an interface whose name starts
+with `tailscale`, `wg`, `utun`, `tun`, `nebula` or `zt`; interfaces named
+`docker`, `br-`, `veth`, `virbr`, `lxc`, `cni`, `flannel` or `podman` are
+skipped. 127.0.0.1 is always bound, the list is re-evaluated every ten seconds
+so a VPN interface that appears later is picked up, and the default port is
+7433. An explicit listen address outside those ranges is refused at startup
+unless `porthole serve` is given `--allow-public-bind-i-understand`.
+Independently of binding, every accepted request is checked against the same
+address classes and a public source address receives 403 unless that flag is
+set. Without a valid token a caller reaches only `POST /v1/pair`; every other
+route returns 401 with an empty body.
 
-- **S** Token theft from a lost phone: tokens live in Keychain/Keystore,
-  optional biometric lock in app, instant revocation on the daemon. Token
-  theft on the wire: TLS 1.3 with pinning; a rogue AP on the VPN path sees
-  ciphertext only. Spoofed daemon: pinning fails closed.
-- **T** All traffic is TLS; messages are JSON validated against `proto/`
-  schemas with size caps (64 KiB per message, 1 MiB per history page).
-- **R** The daemon logs structured warnings (device id, error) through slog;
-  there is no per-action audit log. Accepted for a single-user tool; a device's
-  `last_seen` in `devices.json` is the only persistent trace of use.
-- **I** Error responses are generic (`unauthorized`, `bad_request`). No
-  transcript content in logs. `/v1/health` returns only `ok` and version to
-  authenticated callers; unauthenticated callers get 401 with no body.
-  Session titles and cwd paths are sent to paired devices only.
-- **D** Per-connection message rate limit (60 msg/s, burst 120), max 4
-  concurrent connections per device, pairing endpoint rate limit, `pane.bytes`
-  back-pressure (drop and resend snapshot) so a chatty TUI cannot queue
-  unbounded memory.
-- **E** None available: all devices are equal and equal to the user.
-  Mitigation for the blast radius is the bind policy (nothing reachable off
-  the VPN) and revocation.
+The control socket `porthole.sock` lives in `$XDG_RUNTIME_DIR/porthole` (or
+`run/` under the state directory when that variable is unset), with the
+directory at 0700 and the socket at 0600. It carries the CLI commands (pair,
+devices, revoke, status, config reload) and the hook events, with no
+authentication beyond the file permission: any process running as the same
+user can use it, which equals that user's shell access.
 
-### 2. Hook ↔ daemon
+## What a phone can do
 
-- **S** Any process running as the user can connect to the socket and claim to
-  be a hook. That process could already do anything the user can, so this is
-  not an escalation. The daemon still validates the hook payload shape and
-  only acts on events whose `transcript_path` resolves inside a watched
-  profile.
-- **T/I** Socket is 0600 in a 0700 directory. Permission decisions are sent
-  back on the same connection only.
-- **D** A hook that waits for a phone answer blocks the CLI. Timeout is
-  configurable (default 60 s) and the hook exits with no decision on timeout,
-  socket error, or daemon absence, so Claude Code falls back to its own prompt.
+Every paired phone holds the same rights; there are no per-device scopes. Over
+the WebSocket a phone can:
 
-### 3. Daemon ↔ tmux and files
+- list sessions, including title and working directory, and subscribe to the
+  transcript events and the tmux screen of any session the daemon discovers;
+- page through transcript history (the daemon only reads transcript files);
+- send text to a session that has a tmux pane. The daemon passes the text to
+  `send-keys -l` (or `set-buffer` and `paste-buffer` for multi-line text) as a
+  separate argument, never through a shell, and takes the pane id from its own
+  session list rather than from the client;
+- press named keys from a fixed allowlist (Enter, Escape, arrows, C-c and the
+  like) or single printable characters, up to 32 per message;
+- answer a pending permission prompt with allow or deny. The daemon holds the
+  hook open only while a phone subscribes to that session, gives each prompt a
+  random id, and accepts an answer only for an id that is still pending. After
+  `hooks.permission_timeout_s` (default 60) the hook returns no decision and
+  the terminal prompt appears as usual;
+- start a session. The daemon builds the argv itself from the configured
+  binary, the `--resume`, `--permission-mode` and `--model` values (at most 64
+  characters each, letters, digits and `-_.:[]` only), and the prompt after
+  `--`. The directory passes `insideWorkspace` in
+  `daemon/internal/core/registry.go`: after symlink resolution it is inside a
+  configured workspace or an added repository, or it is exactly a directory an
+  agent session has already run in;
+- register or clear its push grant.
 
-- The daemon runs as the user, never root, and refuses to start as uid 0.
-  `send-keys` is passed with `-l` (literal) and the text as a separate argv
-  element, never through a shell. Session and pane targets are validated
-  against the set the daemon discovered, not taken from the client as free
-  text. Spawn commands use a fixed argv (`claude`, `codex` plus allowlisted
-  flags) with the working directory validated after symlink resolution: it
-  must be inside a configured workspace or added repository, or be exactly a
-  directory an agent session has already run in on this machine.
-- Transcript reads are read-only. Offsets are tracked per real path so a
-  symlinked profile is not read twice.
+Per connection the daemon reads at most 64 KiB per message, allows 60 messages
+per second with a burst of 120, admits four connections per device, and
+coalesces screen snapshots per session so a fast terminal cannot queue
+unbounded output.
 
-### 4 and 5. Relay
+A stolen phone or token therefore reads code and conversations, types into
+running agents, answers their permission prompts and starts new agents in the
+allowed directories, from any address that reaches the daemon. There is no
+second factor; the mitigation is `porthole devices revoke`, which takes effect
+within a second, and keeping the daemon reachable only over the VPN.
 
-- **S** A grant is minted only for an active supporter key (the relay asks the
-  entitlement service) and, when `ATTEST_MODE` is on, only for a store build
-  attested by Play Integrity. The grant binds the device id and push token.
-- **T** Grants are signed (Ed25519) by a key that exists only as a Worker
-  secret. Push payloads are encrypted (XChaCha20-Poly1305) with a key agreed at
-  pairing, so the relay, FCM, and the platforms see ciphertext.
-- **I** The relay learns the relay credential, device id, platform and push token
-  at grant time, the IP addresses of phone and daemon, and per push the fact
-  that "device X was pushed at time T" plus an opaque SHA-256 digest of the
-  session key used as the collapse id. It never sees the notice content. The
-  privacy policy at zerkersec.io/privacy states this.
-- **D** Rate-limit bindings per device id (10/min) and per IP on grant
-  (5/min), a 300/day KV counter per device, payload cap 480 bytes, free-plan
-  hard cap of 100k requests/day fails closed on push only. KV deny list for
-  revoked device ids.
-- **E** A stolen grant can push only to its own device.
+Hook events arrive through `porthole hook`, which `porthole install-hooks`
+registers for the session, prompt, stop, notification and permission events,
+and through the Codex `notify` program `porthole codex-notify`, which only
+reports completed turns. The daemon acts on a hook only when its
+`transcript_path`, after symlink resolution, lies under the `projects`
+directory of a watched profile; otherwise it logs a warning and returns no
+decision.
 
-## Negative space
+## Push relay
 
-- **Assumed safe:** the VPN itself, the user's own machine, and the two CLIs'
-  transcript formats. The first two are out of scope by design. The third is
-  mitigated by parsers that ignore unknown entries and fixture tests pinned to
-  observed formats.
-- **Worst single compromise:** the daemon process. It has the user's full
-  access anyway, so the control that matters is not letting anyone reach it:
-  bind policy refuses public addresses, and a public bind requires an
-  explicit flag with an alarming name.
-- **Attacker goals:** read private code and conversations (needs VPN access
-  plus a device token), drive the agent to exfiltrate or destroy (same), spam
-  pushes (needs a valid relay credential and, when attestation is on, a
-  genuine store build), run up Aaron's bill (hard cap, no bill).
-- **Incident controls:** `porthole devices revoke` per device, relay deny
-  list per device id, relay grant key rotation via a new Worker secret
-  (existing grants stop verifying at once; apps re-mint within three days).
+Push is off until `push.relay_url` names an https URL. At pairing the app
+generates an X25519 key pair and sends the public key; the daemon generates its
+own pair, derives a 32-byte key with HKDF-SHA256 over the shared secret and the
+info string `porthole-push-v1`, stores that key in `devices.json`, returns its
+public key and discards its private key. The app derives the same key and
+stores it in the keystore.
 
-## Abuse twins
+A notice is a JSON object with the kind (permission, input or done), the
+session key, the title clipped to 80 characters, the daemon name and a
+timestamp. The daemon seals it with XChaCha20-Poly1305 under the pairing key
+with a random 24-byte nonce; the ciphertext is capped at 480 bytes. The relay,
+FCM and the platforms carry only that ciphertext, and the APNs alert text is
+the fixed "A session needs your attention".
 
-- Pair a phone → attacker on the VPN brute-forces pairing codes: 8 base32
-  chars, 120 s TTL, 5 attempts/min, single use.
-- Send input to a session → attacker injects commands into tmux: requires a
-  device token; input is literal, never shell-interpreted.
-- Approve a permission from the phone → stale approval applied to a different
-  prompt: approvals carry the hook's request id and expire with it.
-- Spawn a session in a repo → path traversal outside workspaces: resolved path
-  must be inside a configured workspace or added repository, or equal a
-  directory of a known session. A paired phone can therefore start an agent
-  only where you already run one or where you ran `porthole add`.
-- Subscribe to pane bytes → memory exhaustion from a fast TUI: bounded ring
-  buffer per subscriber with snapshot resync.
+The app obtains a grant with `POST /v1/grant`, sending a random device id it
+generates, the platform, the FCM registration token, and the credential from
+the relay URL's userinfo as a bearer token. The relay limits grant requests to
+5 per minute per client IP, rejects device ids on its deny list, optionally
+requires platform attestation (`ATTEST_MODE`; `android` verifies Play
+Integrity, iOS verification is not implemented, so `all` refuses iOS), and
+asks the entitlement service (an HTTPS endpoint sharing `ENTITLEMENT_SECRET`)
+or, on a self-hosted relay, a static list of credential SHA-256 hashes whether
+the credential is active. The grant is the JSON payload `{v, d, t, p, iat,
+exp}` base64url encoded, a dot, and an Ed25519 signature over that encoding
+made with a key held as a Worker secret; `GET /v1/pubkey` returns the
+verification key. It expires at the end of the entitlement period or after 30
+days, whichever is sooner. The app registers the grant with each daemon over
+the WebSocket and renews it when fewer than three days remain.
 
-## Residual risks accepted
+The daemon posts `{grant, ct, collapse}` to `POST /v1/push` for each device
+that holds a live grant and is not connected, at most once per device, session
+and kind every 45 seconds; `collapse` is the first 32 hex characters of the
+SHA-256 of the session key. The relay verifies the signature and expiry, checks
+the deny list, enforces 10 pushes per minute per device id and 300 per day (a
+KV counter that expires after two days), and forwards to FCM. A 400 or 404 from
+FCM becomes a 410, on which the daemon drops the grant.
 
-- A paired device is fully trusted. Single-user tool; per-device scopes are v2.
-- Hook socket trusts any same-user process. Equivalent to the user's own
-  shell access.
-- Audit log is not tamper-evident. Single-user tool.
-- iOS background delivery depends on Apple's push service and a relay; users
-  without a relay have foreground-only notifications on iOS. Documented.
+At grant time the relay sees the relay credential, device id, platform, push
+token and client IP; per push it sees the grant contents, the ciphertext, the
+collapse digest and the time. It keeps no subscriber list; its KV namespace
+holds the deny list (device ids the operator writes) and the daily counters.
+Rotating the signing key invalidates every grant at once. A self-hosted relay
+runs the same code with the static credential list in place of the entitlement
+service; the encryption, grant format and limits are unchanged.
 
-## Follow-ups
+## Threat summary
 
-- Tests: bind policy refusal, pairing brute-force limit, token revocation
-  closes sockets, send-keys argv never passes through a shell, workspace path
-  containment, pane buffer bound.
-- `rafter-code-review` plus `rafter run` on `internal/server`, `internal/tmux`,
-  `internal/hooks`, and `relay/` before each release.
+| Threat | Control | Residual risk |
+| --- | --- | --- |
+| Public internet exposure | Bind and source-address policy admit only loopback, private, CGNAT, ULA and VPN addresses; public addresses need `--allow-public-bind-i-understand` | A host that sets the flag, or a VPN that admits strangers, exposes the daemon to anyone who can reach it |
+| Stolen phone or device token | Token hashed at rest, kept in the phone keystore, revocable with `porthole devices revoke`, connections closed within a second | Until revocation the holder has every right a paired phone has; no second factor |
+| Malicious prompt in a transcript driving the agent | Phone input is literal keystrokes; permission prompts reach the phone with tool name and input for a human decision | A prompt approved from the phone runs with the user's rights, as it would in the terminal |
+| Relay compromise | Notices are encrypted end to end with a key the relay never holds; grants bind one device id and push token | The relay operator learns push tokens, device ids, timing and the per-session collapse digest, and can suppress or delay pushes |
+| Hook tampering | Hook payloads are accepted only for transcripts under a watched profile; answers match a pending prompt id; a hook timeout yields no decision | Any process of the same user can connect to the socket and inject events, which equals that user's shell access |
+| Local user on the machine | State directory 0700, `devices.json`, `tls.key` and the socket 0600; the daemon refuses to run as root | The same user, or root, reads tokens, the push key and every transcript |
