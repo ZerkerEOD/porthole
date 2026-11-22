@@ -33,7 +33,9 @@ class AttentionWatcher with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _foreground = state == AppLifecycleState.resumed;
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed && !_foreground) store.wake();
+    _foreground = resumed;
   }
 
   void _rewire() {

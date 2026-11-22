@@ -67,24 +67,28 @@ type ReloadResult struct {
 
 // Status is the daemon's self-report.
 type Status struct {
-	Version   string    `json:"version"`
-	Name      string    `json:"name"`
-	PID       int       `json:"pid"`
-	Uptime    string    `json:"uptime"`
-	Bound     []string  `json:"bound"`
-	Sessions  int       `json:"sessions"`
-	Running   int       `json:"running"`
-	Devices   int       `json:"devices"`
-	Tmux      bool      `json:"tmux"`
-	Cswap     bool      `json:"cswap"`
-	StartedAt time.Time `json:"started_at"`
+	Version   string     `json:"version"`
+	Name      string     `json:"name"`
+	PID       int        `json:"pid"`
+	Uptime    string     `json:"uptime"`
+	Bound     []string   `json:"bound"`
+	Listeners []Listener `json:"listeners"`
+	Sessions  int        `json:"sessions"`
+	Running   int        `json:"running"`
+	Devices   int        `json:"devices"`
+	Tmux      bool       `json:"tmux"`
+	Cswap     bool       `json:"cswap"`
+	StartedAt time.Time  `json:"started_at"`
+	// RecentConnections holds the latest attempts at the TLS edge, newest first.
+	RecentConnections []ConnAttempt `json:"recent_connections"`
 }
 
 func (l *Local) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
+		addrs := l.srv.BoundAddrs()
 		var bound []string
-		for _, a := range l.srv.BoundAddrs() {
+		for _, a := range addrs {
 			bound = append(bound, a.String())
 		}
 		ss := l.reg.Sessions()
@@ -94,7 +98,7 @@ func (l *Local) routes() http.Handler {
 				running++
 			}
 		}
-		writeJSON(w, Status{Version: version.Version, Name: l.cfg.Name, PID: os.Getpid(), Uptime: time.Since(l.start).Round(time.Second).String(), Bound: bound, Sessions: len(ss), Running: running, Devices: len(l.store.Devices()), Tmux: l.reg.Tmux().Available(r.Context()), Cswap: l.reg.Accounts().Claude != nil, StartedAt: l.start})
+		writeJSON(w, Status{Version: version.Version, Name: l.cfg.Name, PID: os.Getpid(), Uptime: time.Since(l.start).Round(time.Second).String(), Bound: bound, Listeners: DescribeAddrs(addrs, l.cfg.Port), Sessions: len(ss), Running: running, Devices: len(l.store.Devices()), Tmux: l.reg.Tmux().Available(r.Context()), Cswap: l.reg.Accounts().Claude != nil, StartedAt: l.start, RecentConnections: l.srv.RecentConnections()})
 	})
 	mux.HandleFunc("POST /pair/new", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

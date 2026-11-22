@@ -44,7 +44,10 @@ porthole doctor
 Prints the config file in use, the workspaces, where `tmux`, `claude`, `codex`
 and `cswap` were found, each Claude Code and Codex profile the daemon will
 watch and whether the hooks are installed in it, and whether the daemon is
-running and on which addresses.
+running and on which addresses, with the interface and kind (loopback, lan,
+vpn) of each. Checks for an active host firewall (ufw, firewalld, nftables,
+iptables, or the macOS application firewall) and prints the command that
+opens the daemon's port in it.
 
 ### `install-hooks`
 
@@ -102,8 +105,10 @@ to start as root and refuses to bind a public address.
 porthole status
 ```
 
-Prints the version, machine name, pid, uptime, bound addresses, session and
-device counts, and whether tmux and cswap were detected.
+Prints the version, machine name, pid, uptime, session and device counts,
+whether tmux and cswap were detected, the bound addresses with the interface
+and kind (loopback, lan, vpn) of each, and the last ten connection attempts
+from phones: time, source address, path, result and device.
 
 ### `sessions`
 

@@ -2,12 +2,18 @@
 # or by hand. Signing comes from fastlane match against the private
 # ZerkerEOD/porthole-certs repo; App Store Connect auth is an API key
 # (no Apple-ID 2FA), read from ASC_KEY_ID / ASC_ISSUER_ID / ASC_API_KEY_PATH.
+require "fileutils"
+require "json"
 require "time"
 
 default_platform(:ios)
 
 APP_IDENTIFIER = "io.zerkersec.porthole".freeze
 MATCH_PROFILE = "match AppStore #{APP_IDENTIFIER}".freeze
+# Simulators the store screenshots come from: iPhone 6.9" (1320x2868) and
+# iPad 13" (2064x2752), the two sizes App Store Connect asks for. The demo
+# recording is taken on the first one.
+ASSET_DEVICES = ["iPhone 16 Pro Max", "iPad Pro 13-inch (M4)"].freeze
 
 platform :ios do
   def asc_api_key
@@ -84,6 +90,160 @@ platform :ios do
     UI.user_error!("No .ipa in #{ipa_dir}; run the build lane first") if ipa.nil?
     UI.important("If this dies with a network error AFTER 'Successfully uploaded the new binary', the build IS in App Store Connect; do not re-upload.")
     pilot(api_key: asc_api_key, ipa: ipa, skip_waiting_for_build_processing: true, distribute_external: false)
+  end
+
+  # ---- Store assets --------------------------------------------------------
+  # Screenshots and the demo recording come from the built-in demo machine,
+  # driven by integration_test/demo_flow_test.dart on iOS simulators. Output:
+  #   build/assets/screenshots/<device-slug>/NN-name.png
+  #   build/assets/demo.mp4                 (iPhone, slow flow, about a minute)
+  #   fastlane/screenshots/en-US/<slug>-NN-name.png   (what appstore_metadata uploads)
+
+  def app_dir
+    File.expand_path("../..", __dir__)
+  end
+
+  def device_slug(name)
+    name.downcase.gsub(/[^a-z0-9]+/, "-").gsub(/\A-|-\z/, "")
+  end
+
+  def simctl_json(*args)
+    JSON.parse(`xcrun simctl list #{args.join(' ')} -j`)
+  end
+
+  # UDID of an available iOS simulator called `name`. Creates one from the
+  # matching device type on the newest installed iOS runtime when none exists.
+  def simulator_udid(name)
+    simctl_json("devices", "available").fetch("devices", {}).each do |runtime, devices|
+      next unless runtime.include?("iOS")
+      found = devices.find { |d| d["name"] == name && d["isAvailable"] }
+      return found["udid"] if found
+    end
+    type = simctl_json("devicetypes").fetch("devicetypes", []).find { |t| t["name"] == name }
+    UI.user_error!("No simulator device type named '#{name}'. Update Xcode or change ASSET_DEVICES in the Fastfile.") if type.nil?
+    runtimes = simctl_json("runtimes", "available").fetch("runtimes", []).select { |r| r["platform"] == "iOS" && r["isAvailable"] }
+    UI.user_error!("No iOS simulator runtime is installed on this Mac. Install one with Xcode > Settings > Platforms, then rerun.") if runtimes.empty?
+    runtime = runtimes.max_by { |r| Gem::Version.new(r["version"]) }
+    supported = runtime.fetch("supportedDeviceTypes", []).any? { |t| t["identifier"] == type["identifier"] }
+    UI.user_error!("The newest installed runtime (#{runtime['name']}) does not support '#{name}'. Install a newer iOS runtime with Xcode > Settings > Platforms.") unless supported
+    UI.message("Creating simulator '#{name}' on #{runtime['name']}")
+    `xcrun simctl create #{name.shellescape} #{type['identifier']} #{runtime['identifier']}`.strip.tap do |udid|
+      UI.user_error!("simctl create failed for '#{name}'") if udid.empty? || !$?.success?
+    end
+  end
+
+  def simulator_state(udid)
+    simctl_json("devices").fetch("devices", {}).values.flatten.find { |d| d["udid"] == udid }&.fetch("state", "Unknown")
+  end
+
+  def boot_simulator(udid)
+    sh("xcrun simctl boot #{udid}") unless simulator_state(udid) == "Booted"
+    sh("xcrun simctl bootstatus #{udid} -b")
+    sh("xcrun simctl status_bar #{udid} override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4")
+  end
+
+  def shutdown_simulator(udid)
+    sh("xcrun simctl status_bar #{udid} clear", error_callback: ->(_) {})
+    sh("xcrun simctl shutdown #{udid}", error_callback: ->(_) {}) if simulator_state(udid) == "Booted"
+  end
+
+  # Dart defines shared by every drive. store.json carries the Firebase client
+  # ids (scripts/store-defines.sh, or the Jenkins credential); the demo does
+  # not need them, so a missing file only means a build without push.
+  def demo_defines(slow: false)
+    defines = ["--dart-define=PH_DEMO=true", "--dart-define=PH_NO_SPLASH=true"]
+    defines << "--dart-define=PH_DEMO_SLOW=true" if slow
+    if File.exist?(File.join(app_dir, "dart_defines/store.json"))
+      defines << "--dart-define-from-file=dart_defines/store.json"
+    else
+      UI.important("dart_defines/store.json is missing; the asset build has no push ids (fine for screenshots)")
+    end
+    defines.join(" ")
+  end
+
+  # Runs the demo flow on one simulator; returns the directory holding the PNGs.
+  # `binary` is a prebuilt Runner.app (flutter build ios --simulator), so the
+  # recording does not start with minutes of compile time.
+  def drive_demo(udid, slow: false, binary: nil)
+    shots = File.join(app_dir, "build/screenshots")
+    FileUtils.rm_rf(shots)
+    extra = binary ? "--use-application-binary=#{binary.shellescape}" : ""
+    sh("cd #{app_dir.shellescape} && flutter drive --driver=test_driver/integration_test.dart " \
+       "--target=integration_test/demo_flow_test.dart -d #{udid} #{demo_defines(slow: slow)} #{extra}")
+    pngs = Dir.glob(File.join(shots, "*.png")).sort
+    UI.user_error!("The demo flow produced no screenshots in #{shots}") if pngs.empty?
+    shots
+  end
+
+  desc "Store assets from the built-in demo: screenshots for every ASSET_DEVICES simulator plus the demo recording on the iPhone."
+  lane :assets do
+    out = File.join(app_dir, "build/assets")
+    FileUtils.rm_rf(out)
+    FileUtils.mkdir_p(File.join(out, "screenshots"))
+    deliver_dir = File.expand_path("screenshots/en-US", __dir__)
+    FileUtils.mkdir_p(deliver_dir)
+    Dir.glob(File.join(deliver_dir, "*.png")).each { |f| File.delete(f) }
+
+    sh("cd #{app_dir.shellescape} && flutter pub get")
+    booted = []
+    begin
+      ASSET_DEVICES.each do |name|
+        udid = simulator_udid(name)
+        slug = device_slug(name)
+        UI.header("Screenshots: #{name} (#{udid})")
+        boot_simulator(udid)
+        booted << udid
+        shots = drive_demo(udid)
+        dest = File.join(out, "screenshots", slug)
+        FileUtils.mkdir_p(dest)
+        Dir.glob(File.join(shots, "*.png")).sort.each do |png|
+          FileUtils.cp(png, File.join(dest, File.basename(png)))
+          FileUtils.cp(png, File.join(deliver_dir, "#{slug}-#{File.basename(png)}"))
+        end
+        UI.success("#{Dir.glob(File.join(dest, '*.png')).size} screenshots in #{dest}")
+      end
+
+      # Recording: the slow flow on the iPhone, captured by the simulator.
+      phone = ASSET_DEVICES.first
+      udid = simulator_udid(phone)
+      UI.header("Recording: #{phone} (#{udid})")
+      boot_simulator(udid)
+      booted << udid
+      sh("cd #{app_dir.shellescape} && flutter build ios --simulator --debug -t integration_test/demo_flow_test.dart #{demo_defines(slow: true)}")
+      binary = File.join(app_dir, "build/ios/iphonesimulator/Runner.app")
+      UI.user_error!("flutter build ios --simulator left no app at #{binary}") unless File.directory?(binary)
+      video = File.join(out, "demo.mp4")
+      FileUtils.rm_f(video)
+      recorder = Process.spawn("xcrun", "simctl", "io", udid, "recordVideo", "--codec", "h264", "--force", video)
+      begin
+        drive_demo(udid, slow: true, binary: binary)
+      ensure
+        Process.kill("INT", recorder)
+        Process.wait(recorder)
+      end
+      UI.user_error!("No recording at #{video}") unless File.exist?(video)
+      UI.success("Recording: #{video} (#{(File.size(video) / 1024.0 / 1024.0).round(1)} MB)")
+    ensure
+      booted.uniq.each { |u| shutdown_simulator(u) }
+    end
+    UI.success("Store assets in #{out}")
+  end
+
+  desc "Push the listing text, review notes and screenshots (fastlane/metadata, fastlane/screenshots) to App Store Connect. No binary, no submission."
+  lane :appstore_metadata do
+    deliver(
+      api_key: asc_api_key,
+      app_identifier: APP_IDENTIFIER,
+      metadata_path: "./fastlane/metadata",
+      screenshots_path: "./fastlane/screenshots",
+      skip_binary_upload: true,
+      skip_metadata: false,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false,
+      submit_for_review: false,
+      force: true
+    )
   end
 
   desc "Release the newest processed build to the external TestFlight group (public link onboarding)."

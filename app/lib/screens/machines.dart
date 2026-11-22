@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../client.dart';
 import '../main.dart';
 import '../models.dart';
 import '../store.dart';
@@ -9,8 +10,20 @@ import 'pairing.dart';
 import 'sessions.dart';
 
 /// Manage paired machines: rename, mute, auto-connect, connect now, forget.
-class MachinesScreen extends StatelessWidget {
+/// Opening it checks every address of every machine.
+class MachinesScreen extends StatefulWidget {
   const MachinesScreen({super.key});
+
+  @override
+  State<MachinesScreen> createState() => _MachinesScreenState();
+}
+
+class _MachinesScreenState extends State<MachinesScreen> {
+  @override
+  void initState() {
+    super.initState();
+    context.read<AppStore>().probeAll();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,14 +80,31 @@ class _MachineCard extends StatelessWidget {
               trailing: IconButton(tooltip: 'Rename', icon: const Icon(Icons.edit_outlined), onPressed: () => _rename(context, store)),
               onTap: client.online ? () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SessionsScreen(daemon: d))) : () => store.connectNow(d),
             ),
-            if (client.needsRepair)
-              Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: Text(client.lastError ?? '', style: const TextStyle(color: crimsonBright, fontSize: 12))),
+            if (!client.online && client.lastError != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(client.lastError!, style: TextStyle(color: client.needsRepair ? crimsonBright : cs.onSurfaceVariant, fontSize: 12)),
+              ),
             SwitchListTile(dense: true, title: const Text('Auto-connect'), subtitle: const Text('Connect when the app opens'), value: d.autoConnect, onChanged: (v) => store.setAutoConnect(d, v)),
             SwitchListTile(dense: true, title: const Text('Mute notifications'), subtitle: const Text('No attention alerts or push from this machine'), value: d.muted, onChanged: (v) => store.setMuted(d, v)),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(client.isDemo ? 'Built-in demo machine · no network' : '${d.hosts.join(', ')} : ${d.port}\n${d.fingerprint}', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant, fontFamily: 'monospace')),
-            ),
+            if (client.isDemo)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text('Built-in demo machine · no network', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant, fontFamily: 'monospace')),
+              )
+            else ...[
+              for (final h in d.hosts)
+                _HostRow(
+                  host: h,
+                  status: client.hostStatus[h],
+                  via: client.online && d.lastHost == h,
+                  onTap: () => store.preferHost(d, h),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text('port ${d.port} · ${d.fingerprint}', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant, fontFamily: 'monospace')),
+              ),
+            ],
             OverflowBar(alignment: MainAxisAlignment.end, children: [
               if (!client.online) TextButton.icon(onPressed: () => store.connectNow(d), icon: const Icon(Icons.refresh, size: 18), label: const Text('Connect now')),
               TextButton.icon(
@@ -112,5 +142,46 @@ class _MachineCard extends StatelessWidget {
       ),
     );
     if (ok == true) await store.remove(d);
+  }
+}
+
+/// One address of a machine: status dot, the address, a "via" chip while it
+/// carries the connection, and the latency or the short error. Tapping it
+/// makes it the preferred address.
+class _HostRow extends StatelessWidget {
+  const _HostRow({required this.host, required this.status, required this.via, required this.onTap});
+  final String host;
+  final HostStatus? status;
+  final bool via;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final s = status;
+    final color = s == null ? cs.outline : (s.reachable ? const Color(0xFF3DDC84) : crimsonBright);
+    final label = s == null ? 'untested' : s.label;
+    return Tooltip(
+      message: 'Connect through this address',
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: color)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(host, style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: cs.onSurface))),
+            if (via)
+              Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(color: cs.primaryContainer, borderRadius: BorderRadius.circular(8)),
+                child: Text('via', style: TextStyle(fontSize: 10, color: cs.onPrimaryContainer)),
+              ),
+            Text(label, style: TextStyle(fontSize: 11, color: s == null || s.reachable ? cs.onSurfaceVariant : crimsonBright)),
+          ]),
+        ),
+      ),
+    );
   }
 }

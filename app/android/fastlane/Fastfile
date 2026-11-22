@@ -1,8 +1,10 @@
 # Porthole Android lanes. The AAB is built by Jenkins (flutter build appbundle);
-# these lanes only upload it. PLAY_JSON_KEY_PATH is the Play service-account JSON.
+# these lanes only upload it, or the listing. PLAY_JSON_KEY_PATH is the Play
+# service-account JSON.
 default_platform(:android)
 
 AAB = "../build/app/outputs/bundle/release/app-release.aab".freeze
+METADATA = "./fastlane/metadata/android".freeze
 
 platform :android do
   desc "Upload the AAB to the Internal testing track as a draft."
@@ -12,6 +14,22 @@ platform :android do
 
   desc "Upload the AAB to the closed testing track 'alpha' (the 12-tester / 14-day run)."
   lane :playstore_closed do
-    upload_to_play_store(track: "alpha", aab: AAB, release_status: "completed", skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+    # Draft, not completed: Play rejects a completed release on an app that has
+    # never been published. The owner rolls the draft out in the Play Console.
+    upload_to_play_store(track: "alpha", aab: AAB, release_status: "draft", skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true)
+  end
+
+  desc "Push the listing text, icon, feature graphic and phone screenshots (fastlane/metadata/android) to the Play Console. No binary, no changelog."
+  lane :playstore_metadata do
+    upload_to_play_store(
+      metadata_path: METADATA,
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: true,
+      skip_upload_metadata: false,
+      skip_upload_images: false,
+      skip_upload_screenshots: false,
+      sync_image_upload: true
+    )
   end
 end

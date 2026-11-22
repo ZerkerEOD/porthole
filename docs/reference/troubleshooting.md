@@ -14,9 +14,13 @@ Start with `porthole doctor` and `porthole status` on the machine. Daemon logs: 
 **The app cannot reach the machine**
 :   The phone needs a private route to the host shown by `porthole pair`: the
     same network, or the VPN connected on the phone too. The daemon refuses
-    connections from public addresses. Check that TCP port 7433 (or your `port`) is open in
-    the host firewall on that interface, and that `porthole status` lists the
-    address you are using.
+    connections from public addresses. Run `porthole status` on the machine:
+    it lists the bound addresses with their kind (lan or vpn) and the recent
+    connection attempts. If the phone's attempts do not show up there, the
+    traffic is not reaching the daemon: wrong address, wrong network, or a
+    firewall. `porthole doctor` reports an active host firewall and prints
+    the command that opens TCP port 7433 (or your `port`). VPN traffic often
+    bypasses the host firewall; LAN traffic does not.
 
 **"Certificate fingerprint mismatch"**
 :   The daemon's certificate changed because its state directory

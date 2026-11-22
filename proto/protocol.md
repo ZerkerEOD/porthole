@@ -27,7 +27,7 @@ that source out for a minute.
 
 | type | payload |
 |---|---|
-| `hello` | `{name, version, protocol, device, sessions:[Session], accounts, permissions:[PermissionRequest], features:{claude,codex,push,tmux}}` sent once after connect |
+| `hello` | `{name, version, protocol, device, hosts?:[string], sessions:[Session], accounts, permissions:[PermissionRequest], features:{claude,codex,push,tmux}}` sent once after connect. `hosts` is optional: the daemon's current advertised addresses, VPN first, in the same form as the pairing payload, so the app can refresh the addresses it stored at pairing |
 | `session.upsert` | `Session` |
 | `session.removed` | `{key}` |
 | `event` | `{key, events:[Event]}` for subscribed sessions |

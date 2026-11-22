@@ -1,0 +1,16 @@
+Porthole turns your phone into a remote for the coding-agent sessions running on your own computer. A small open-source daemon on the machine, this app on the phone, and your VPN in between. Nothing passes through anyone else's servers.
+
+- See every Claude Code and Codex CLI session on your machines, grouped by machine, with the ones that need you first.
+- Read the conversation as rendered markdown, straight from the tools' own transcripts: tool calls, results and thinking included.
+- Approve or deny permission prompts from the phone.
+- Type prompts and slash commands into the real terminal session, or open the terminal view for menus and interactive prompts.
+- Start new sessions in any repository, resume old ones, and switch between machines.
+- Account usage at a glance for the tools that expose it.
+
+Security first: the daemon only listens on private and VPN addresses, every phone is paired with a single-use code and pinned TLS certificate, and input is typed literally into the session, never run through a shell.
+
+Push notifications while the app is closed need a small relay. Run your own (the relay is open source and documented) or paste the URL of one that is provided to you. Without a relay the app still alerts you while it is open.
+
+Try it without a machine: the first screen has "Try the demo", a built-in sample machine.
+
+Requirements: the Porthole daemon (Linux or macOS) running on a computer you own, and a VPN or local network between it and the phone.

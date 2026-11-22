@@ -1,8 +1,10 @@
 /// Persisted daemon list (tokens in the platform keystore) and live clients.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +33,8 @@ class AppStore extends ChangeNotifier {
   String? lastUsedDaemonId;
   /// Called when a machine's mute flag changes so push grants can follow.
   void Function(DaemonInfo d, bool muted)? onMuteChanged;
+  StreamSubscription<List<ConnectivityResult>>? _connectivity;
+  Timer? _wake;
 
   Future<void> load() async {
     try {
@@ -50,8 +54,42 @@ class AppStore extends ChangeNotifier {
     for (final d in daemons) {
       _client(d).connect();
     }
-    if (BuildConfig.demo && !hasDemo) await add(demoDaemonInfo());
+    if (BuildConfig.demo && !hasDemo) {
+      for (final d in demoDaemonInfos()) {
+        await add(d);
+      }
+    }
     notifyListeners();
+    _watchConnectivity();
+  }
+
+  void _watchConnectivity() {
+    try {
+      _connectivity = Connectivity().onConnectivityChanged.listen((_) => wake(), onError: (Object _) {}, cancelOnError: true);
+    } catch (_) {
+      // No connectivity plugin on this platform: resume still triggers wake().
+    }
+  }
+
+  /// The network changed or the app came back to the foreground: retry every
+  /// machine that is not online. Debounced so a burst of events becomes one
+  /// attempt. Machines with auto-connect off are left alone.
+  void wake() {
+    if (!loaded) return;
+    _wake?.cancel();
+    _wake = Timer(const Duration(milliseconds: 500), () {
+      for (final d in daemons) {
+        final c = _client(d);
+        if (!c.isDemo && !c.online && d.autoConnect) c.connect(manual: true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _wake?.cancel();
+    _connectivity?.cancel();
+    super.dispose();
   }
 
   bool get hasDemo => daemons.any((d) => d.id == demoDaemonId);
@@ -60,7 +98,9 @@ class AppStore extends ChangeNotifier {
   /// can be explored without a daemon. It persists like any machine and can be
   /// forgotten from the Machines screen.
   Future<void> addDemo() async {
-    await add(demoDaemonInfo());
+    for (final d in demoDaemonInfos()) {
+      await add(d);
+    }
     try {
       await Notifier.instance.requestPermission();
     } catch (_) {}
@@ -105,7 +145,29 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void connectNow(DaemonInfo d) => _client(d).connect(manual: true);
+  void connectNow(DaemonInfo d) {
+    final c = _client(d);
+    c.probeHosts();
+    c.connect(manual: true);
+  }
+
+  /// Makes [host] the address tried first and dials through it now.
+  Future<void> preferHost(DaemonInfo d, String host) async {
+    if (!d.hosts.contains(host)) return;
+    final c = _client(d);
+    if (c.online && d.lastHost == host) return;
+    d.lastHost = host;
+    await _save();
+    notifyListeners();
+    await c.reconnect();
+  }
+
+  /// Checks every address of every paired machine (Machines screen).
+  void probeAll() {
+    for (final d in daemons) {
+      _client(d).probeHosts();
+    }
+  }
 
   int get onlineCount => clients.values.where((c) => c.online).length;
 
@@ -117,10 +179,15 @@ class AppStore extends ChangeNotifier {
 
   DaemonClient _client(DaemonInfo d) {
     return clients.putIfAbsent(d.id, () {
-      final c = d.id == demoDaemonId ? DemoDaemonClient(d) : DaemonClient(d);
+      final c = isDemoDaemonId(d.id) ? DemoDaemonClient(d) : DaemonClient(d);
+      // The client mutates the same DaemonInfo; persist when the preferred
+      // address or the address list changes.
+      var savedHost = d.lastHost;
+      var savedHosts = List.of(d.hosts);
       c.addListener(() {
-        if (c.info.lastHost != d.lastHost) {
-          d.lastHost = c.info.lastHost;
+        if (d.lastHost != savedHost || !listEquals(d.hosts, savedHosts)) {
+          savedHost = d.lastHost;
+          savedHosts = List.of(d.hosts);
           _save();
         }
         notifyListeners();

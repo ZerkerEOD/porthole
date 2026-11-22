@@ -34,6 +34,7 @@ type Server struct {
 	log         *slog.Logger
 	allowPublic bool
 	cert        string // fingerprint
+	conns       *connLog
 
 	mu        sync.Mutex
 	listeners map[netip.Addr]net.Listener
@@ -52,7 +53,7 @@ func New(cfg *config.Config, reg *core.Registry, store *Store, log *slog.Logger,
 			log.Info("push relay enabled", "url", cfg.Push.RelayURL)
 		}
 	}
-	return &Server{cfg: cfg, reg: reg, store: store, hub: h, log: log, allowPublic: allowPublic, listeners: map[netip.Addr]net.Listener{}}
+	return &Server{cfg: cfg, reg: reg, store: store, hub: h, log: log, allowPublic: allowPublic, conns: newConnLog(connLogSize), listeners: map[netip.Addr]net.Listener{}}
 }
 
 // Notify forwards an attention event to the push path.
@@ -60,6 +61,9 @@ func (s *Server) Notify(kind, sessionKey, title string) { s.hub.Notify(kind, ses
 
 // Fingerprint returns the pinned certificate fingerprint.
 func (s *Server) Fingerprint() string { return s.cert }
+
+// RecentConnections lists the latest connection attempts, newest first.
+func (s *Server) RecentConnections() []ConnAttempt { return s.conns.recent() }
 
 // BoundAddrs lists the addresses currently listened on.
 func (s *Server) BoundAddrs() []netip.Addr {
@@ -117,6 +121,8 @@ func (s *Server) routes() http.Handler {
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !RemoteAllowed(r.RemoteAddr, s.allowPublic) {
+			s.conns.add(ConnAttempt{From: remoteHost(r.RemoteAddr), Path: pathKind(r.URL.Path), Result: ResultRejectedPublic})
+			s.log.Warn("rejected public source", "from", remoteHost(r.RemoteAddr), "path", r.URL.Path)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -146,6 +152,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		d, ok := s.store.Authenticate(tok)
 		if !ok {
+			s.conns.add(ConnAttempt{From: remoteHost(r.RemoteAddr), Path: pathKind(r.URL.Path), Result: ResultUnauthorized})
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -162,6 +169,7 @@ var pairLimiter = rate.NewLimiter(rate.Every(2*time.Second), 10)
 
 func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	if !pairLimiter.Allow() {
+		s.conns.add(ConnAttempt{From: remoteHost(r.RemoteAddr), Path: PathPair, Result: ResultRateLimited})
 		http.Error(w, "slow down", http.StatusTooManyRequests)
 		return
 	}
@@ -199,12 +207,15 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		s.log.Warn("pairing failed", "from", host, "err", err)
 		switch {
 		case errors.Is(err, ErrRateLimited):
+			s.conns.add(ConnAttempt{From: host, Path: PathPair, Result: ResultRateLimited, Name: req.DeviceName})
 			http.Error(w, "too many attempts", http.StatusTooManyRequests)
 		default:
+			s.conns.add(ConnAttempt{From: host, Path: PathPair, Result: ResultUnauthorized, Name: req.DeviceName})
 			http.Error(w, "invalid code", http.StatusUnauthorized)
 		}
 		return
 	}
+	s.conns.add(ConnAttempt{From: host, Path: PathPair, Result: ResultAccepted, Device: d.ID, Name: d.Name})
 	s.log.Info("device paired", "device", d.ID, "name", d.Name, "from", host)
 	resp := map[string]any{"device_id": d.ID, "token": tok, "name": s.cfg.Name, "version": version.Version, "protocol": version.Protocol, "push": s.cfg.Push.RelayURL != ""}
 	if pushPub != "" {
@@ -233,8 +244,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	go c.writer(ctx)
+	s.conns.add(ConnAttempt{From: remoteHost(r.RemoteAddr), Path: PathWebSocket, Result: ResultAccepted, Device: d.ID, Name: d.Name})
 	c.log.Info("connected", "from", r.RemoteAddr)
-	hello := Hello{Name: s.cfg.Name, Version: version.Version, Protocol: version.Protocol, Device: d.ID, Sessions: s.reg.Sessions(), Accounts: s.reg.Accounts(), Permissions: s.reg.Permissions().Pending(),
+	hello := Hello{Name: s.cfg.Name, Version: version.Version, Protocol: version.Protocol, Device: d.ID, Hosts: AdvertiseAddrs(s.BoundAddrs()), Sessions: s.reg.Sessions(), Accounts: s.reg.Accounts(), Permissions: s.reg.Permissions().Pending(),
 		Features: map[string]bool{"claude": s.cfg.Claude.On(), "codex": s.cfg.Codex.On(), "push": s.cfg.Push.RelayURL != "", "tmux": s.reg.Tmux().Available(ctx)}}
 	c.push("hello", hello)
 	for {

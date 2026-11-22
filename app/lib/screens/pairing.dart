@@ -107,13 +107,15 @@ class _PairingScreenState extends State<PairingScreen> {
     );
   }
 
+  List<String> get _hosts => _host.text.split(RegExp(r'[,\s]+')).map((h) => h.trim()).where((h) => h.isNotEmpty).toList();
+
   Widget _manualForm() {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const Text('Run `porthole pair` on the machine and copy the values it prints.'),
         const SizedBox(height: 12),
-        TextField(controller: _host, decoration: const InputDecoration(labelText: 'Host (VPN address)', hintText: '100.64.0.5')),
+        TextField(controller: _host, decoration: const InputDecoration(labelText: 'Host addresses (LAN and/or VPN)', hintText: '192.168.1.20, 100.64.0.5', helperText: 'Separate several addresses with commas or spaces')),
         TextField(controller: _port, decoration: const InputDecoration(labelText: 'Port'), keyboardType: TextInputType.number),
         TextField(controller: _fp, decoration: const InputDecoration(labelText: 'Certificate fingerprint')),
         TextField(controller: _code, decoration: const InputDecoration(labelText: 'Pairing code'), textCapitalization: TextCapitalization.characters),
@@ -123,8 +125,8 @@ class _PairingScreenState extends State<PairingScreen> {
           onPressed: _busy
               ? null
               : () => _finish(PairPayload(
-                    name: _host.text.trim(),
-                    hosts: [_host.text.trim()],
+                    name: _hosts.firstOrNull ?? '',
+                    hosts: _hosts,
                     port: int.tryParse(_port.text.trim()) ?? 7433,
                     fingerprint: _fp.text.trim(),
                     code: _code.text.trim().toUpperCase(),

@@ -268,11 +268,48 @@ func statusCmd() *cobra.Command {
 				return err
 			}
 			fmt.Printf("porthole %s (%s) pid %d up %s\n", st.Version, st.Name, st.PID, st.Uptime)
-			fmt.Printf("listening on: %s\n", strings.Join(st.Bound, ", "))
 			fmt.Printf("sessions: %d (%d running)  devices: %d  tmux: %v  cswap: %v\n", st.Sessions, st.Running, st.Devices, st.Tmux, st.Cswap)
+			fmt.Println("listening on:")
+			printListeners(st.Listeners)
+			fmt.Println("recent connections (newest first):")
+			printConnections(st.RecentConnections, 10)
 			return nil
 		},
 	}
+}
+
+func printListeners(ls []server.Listener) {
+	if len(ls) == 0 {
+		fmt.Println("  (none)")
+		return
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(tw, "  ADDRESS\tINTERFACE\tKIND")
+	for _, l := range ls {
+		iface := l.Iface
+		if iface == "" {
+			iface = "-"
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\n", l.Addr, iface, l.Kind)
+	}
+	tw.Flush()
+}
+
+func printConnections(cs []server.ConnAttempt, max int) {
+	if len(cs) == 0 {
+		fmt.Println("  (none since start)")
+		return
+	}
+	if len(cs) > max {
+		cs = cs[:max]
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(tw, "  TIME\tFROM\tPATH\tRESULT\tDEVICE")
+	for _, c := range cs {
+		dev := firstNonEmpty(c.Name, c.Device, "-")
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", c.At.Local().Format("15:04:05"), c.From, c.Path, c.Result, dev)
+	}
+	tw.Flush()
 }
 
 func binaryPath() string {
@@ -467,11 +504,11 @@ func doctor(ctx context.Context) error {
 	cfg, err := config.Load(flagConfig)
 	if err != nil {
 		fmt.Println("config: ERROR", err)
-	} else {
-		fmt.Println("config:", cfg.Path)
-		fmt.Println("workspaces:", cfg.Workspaces)
-		fmt.Println("repos:", cfg.Repos, "(repos.toml:", config.ManagedPath(cfg.Path)+")")
+		return fmt.Errorf("fix the configuration file, then run doctor again")
 	}
+	fmt.Println("config:", cfg.Path)
+	fmt.Println("workspaces:", cfg.Workspaces)
+	fmt.Println("repos:", cfg.Repos, "(repos.toml:", config.ManagedPath(cfg.Path)+")")
 	check := func(bin string) string {
 		if p, err := exec.LookPath(bin); err == nil {
 			return p
@@ -499,7 +536,16 @@ func doctor(ctx context.Context) error {
 		fmt.Println("daemon: not running")
 	} else {
 		fmt.Printf("daemon: running (%s) on %s\n", st.Version, strings.Join(st.Bound, ", "))
+		printListeners(st.Listeners)
 	}
+	port := cfg.Port
+	if port == 0 {
+		port = config.Default().Port
+	}
+	for _, line := range firewallHint(ctx, port) {
+		fmt.Println(line)
+	}
+	fmt.Println("note: VPN traffic often bypasses the host firewall; LAN traffic does not.")
 	if len(cfg.Workspaces) == 0 && len(cfg.Repos) == 0 {
 		fmt.Println("hint: run `porthole add` inside a repository (or `porthole add --workspace ~/Programming`) so the app can start sessions there")
 	}

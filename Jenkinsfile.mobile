@@ -22,6 +22,7 @@ pipeline {
         booleanParam(name: 'UPLOAD_TESTFLIGHT', defaultValue: true, description: 'Upload the IPA to TestFlight')
         booleanParam(name: 'BUILD_ANDROID', defaultValue: true, description: 'Build the Android AAB')
         choice(name: 'PLAY_TRACK', choices: ['none', 'internal', 'closed'], description: 'Upload the AAB to this Play track')
+        booleanParam(name: 'BUILD_ASSETS', defaultValue: false, description: 'Store assets: demo screenshots on iPhone and iPad simulators plus the demo recording (Mac mini, fastlane assets)')
     }
     environment {
         LC_ALL = 'en_US.UTF-8'
@@ -68,6 +69,40 @@ pipeline {
             }
             post {
                 // Build products go; vendor/bundle and Pods stay so the next run is quick.
+                always {
+                    sh 'rm -f app/dart_defines/store.json'
+                    cleanWs(deleteDirs: true, notFailBuild: true, patterns: [[pattern: 'app/build/**', type: 'INCLUDE']])
+                }
+            }
+        }
+        stage('assets') {
+            agent { label 'macos' }
+            when { expression { params.BUILD_ASSETS } }
+            steps {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE', message: 'Store assets failed') {
+                    checkout scm
+                    withCredentials([
+                        file(credentialsId: 'porthole-store-defines-json', variable: 'STORE_DEFINES'),
+                    ]) {
+                        sh '''
+                            set -e
+                            cp "$STORE_DEFINES" app/dart_defines/store.json
+                            export PATH="$HOME/flutter/bin:$HOME/.local/share/gem/ruby/4.0.0/bin:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:$PATH"
+                            export CI=true FASTLANE_SKIP_UPDATE_CHECK=1 FASTLANE_DISABLE_COLORS=1
+                            cd app
+                            flutter --version
+                            flutter pub get
+                            cd ios
+                            bundle config set --local path 'vendor/bundle'
+                            bundle install
+                            bundle exec pod install --repo-update
+                            bundle exec fastlane assets
+                        '''
+                    }
+                    archiveArtifacts artifacts: 'app/build/assets/**', fingerprint: true
+                }
+            }
+            post {
                 always {
                     sh 'rm -f app/dart_defines/store.json'
                     cleanWs(deleteDirs: true, notFailBuild: true, patterns: [[pattern: 'app/build/**', type: 'INCLUDE']])

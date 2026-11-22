@@ -1,0 +1,1 @@
+Watch and steer Claude Code and Codex sessions on your own machine, over your own VPN. No accounts, no cloud in between.

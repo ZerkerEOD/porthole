@@ -54,6 +54,7 @@ type (
 		Version     string                   `json:"version"`
 		Protocol    int                      `json:"protocol"`
 		Device      string                   `json:"device"`
+		Hosts       []string                 `json:"hosts,omitempty"`
 		Sessions    []core.Session           `json:"sessions"`
 		Accounts    core.AccountsSnapshot    `json:"accounts"`
 		Permissions []core.PermissionRequest `json:"permissions"`

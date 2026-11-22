@@ -25,7 +25,7 @@ Future<void> pump(WidgetTester t, int ticks) async {
 
 Future<void> pairVia(WidgetTester tester, String file) async {
   final j = jsonDecode(File(file).readAsStringSync()) as Map<String, dynamic>;
-  await tester.enterText(find.widgetWithText(TextField, 'Host (VPN address)'), '127.0.0.1');
+  await tester.enterText(find.widgetWithText(TextField, 'Host addresses (LAN and/or VPN)'), '127.0.0.1');
   await tester.enterText(find.widgetWithText(TextField, 'Port'), '${j['port']}');
   await tester.enterText(find.widgetWithText(TextField, 'Certificate fingerprint'), j['fp'] as String);
   await tester.enterText(find.widgetWithText(TextField, 'Pairing code'), j['code'] as String);

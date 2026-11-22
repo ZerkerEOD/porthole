@@ -1,0 +1,19 @@
+Porthole is a free, open-source companion app for a program the user runs on their own computer (the Porthole daemon, https://github.com/ZerkerEOD/porthole). The app connects to that daemon over the user's own VPN or local network and shows and controls the coding-agent sessions (Claude Code, Codex CLI) running there. There are no accounts, no purchases, no ads, and no login.
+
+Because the app needs a daemon on a computer, it includes a built-in demo machine so you can see every feature without one:
+
+1. Open the app. On the first screen tap "Try the demo".
+2. A machine named "demo-box" appears with sample sessions. After a few seconds one session asks for permission to run a command; Allow or Deny it from the banner or from the session.
+3. Open a session to read the transcript, type a message, or switch to the terminal view.
+4. Use the + button to start a new session, and the machines icon to rename, mute or forget the demo machine.
+5. Background the app before the permission prompt appears (within about four seconds of adding the demo) to see a local notification; tapping it opens the session.
+
+Push notifications while the app is closed are optional. They require a relay server that the user runs themselves (documented in the repository) or whose URL they are given; the app takes the relay URL in Settings > Push relay and has no other configuration. Nothing in the app sells or promotes anything.
+
+Permissions: camera for scanning the daemon's pairing QR code; notifications for prompts.
+
+Encryption: the app uses standard algorithms only (TLS, X25519, HKDF-SHA256, XChaCha20-Poly1305); it qualifies for the export-compliance exemption and ITSAppUsesNonExemptEncryption is set to false.
+
+A 60-second recording of the demo flow: <RECORDING URL>
+
+Contact: privacy@zerkersec.io

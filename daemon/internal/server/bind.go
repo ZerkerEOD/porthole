@@ -94,16 +94,41 @@ func ListenAddrs(configured []string, allowPublic bool) ([]netip.Addr, error) {
 	return out, nil
 }
 
-// AdvertiseAddrs picks the addresses worth putting in a pairing QR: VPN and
-// private addresses, excluding loopback, VPN first.
-func AdvertiseAddrs(bound []netip.Addr) []string {
-	type cand struct {
-		a   string
-		vpn bool
+// Address kinds reported for bound listeners.
+const (
+	KindLoopback = "loopback"
+	KindLAN      = "lan"
+	KindVPN      = "vpn"
+	KindPublic   = "public"
+)
+
+// ClassifyAddr labels an address by how a phone would reach it: "loopback",
+// "vpn" (VPN-named interface or CGNAT range), "lan" (other private), or
+// "public" for anything else.
+func ClassifyAddr(ip netip.Addr, ifname string) string {
+	ip = ip.Unmap()
+	switch {
+	case ip.IsLoopback():
+		return KindLoopback
+	case vpnIface(ifname) || cgnat.Contains(ip):
+		return KindVPN
+	case IsPrivateAddr(ip):
+		return KindLAN
 	}
-	var cs []cand
-	ifs, _ := net.Interfaces()
+	return KindPublic
+}
+
+// Listener describes one bound address for status output.
+type Listener struct {
+	Addr  string `json:"addr"`
+	Iface string `json:"iface"`
+	Kind  string `json:"kind"`
+}
+
+// ifaceOf maps every local address to the interface that carries it.
+func ifaceOf() map[netip.Addr]string {
 	ifOf := map[netip.Addr]string{}
+	ifs, _ := net.Interfaces()
 	for _, ifc := range ifs {
 		addrs, _ := ifc.Addrs()
 		for _, ad := range addrs {
@@ -112,11 +137,42 @@ func AdvertiseAddrs(bound []netip.Addr) []string {
 			}
 		}
 	}
+	return ifOf
+}
+
+// DescribeAddrs labels bound addresses with their interface and kind, VPN
+// first, loopback last, sorted by address within a kind.
+func DescribeAddrs(bound []netip.Addr, port int) []Listener {
+	ifOf := ifaceOf()
+	out := make([]Listener, 0, len(bound))
+	for _, a := range bound {
+		a = a.Unmap()
+		out = append(out, Listener{Addr: netip.AddrPortFrom(a, uint16(port)).String(), Iface: ifOf[a], Kind: ClassifyAddr(a, ifOf[a])})
+	}
+	rank := map[string]int{KindVPN: 0, KindLAN: 1, KindPublic: 2, KindLoopback: 3}
+	sort.SliceStable(out, func(i, j int) bool {
+		if rank[out[i].Kind] != rank[out[j].Kind] {
+			return rank[out[i].Kind] < rank[out[j].Kind]
+		}
+		return out[i].Addr < out[j].Addr
+	})
+	return out
+}
+
+// AdvertiseAddrs picks the addresses worth putting in a pairing QR: VPN and
+// private addresses, excluding loopback, VPN first.
+func AdvertiseAddrs(bound []netip.Addr) []string {
+	type cand struct {
+		a   string
+		vpn bool
+	}
+	var cs []cand
+	ifOf := ifaceOf()
 	for _, a := range bound {
 		if a.IsLoopback() {
 			continue
 		}
-		cs = append(cs, cand{a.String(), vpnIface(ifOf[a]) || cgnat.Contains(a)})
+		cs = append(cs, cand{a.String(), ClassifyAddr(a, ifOf[a]) == KindVPN})
 	}
 	sort.SliceStable(cs, func(i, j int) bool { return cs[i].vpn && !cs[j].vpn })
 	out := make([]string, 0, len(cs))

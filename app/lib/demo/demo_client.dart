@@ -1,8 +1,9 @@
-/// The built-in demo machine: a DaemonClient with no transport. It answers
-/// every request from the scripted fixture and injects frames through the
-/// same parser a real machine's frames go through, so every screen behaves
-/// exactly as it does against a daemon. Used by store reviewers, screenshots
-/// and anyone who wants to look around before pairing.
+/// The built-in demo machines: a DaemonClient with no transport. It answers
+/// every request from the scripted fixture (keyed by the machine's local id,
+/// so demo-box and build-box differ) and injects frames through the same
+/// parser a real machine's frames go through, so every screen behaves exactly
+/// as it does against a daemon. Used by store reviewers, screenshots and
+/// anyone who wants to look around before pairing.
 library;
 
 import 'dart:async';
@@ -15,6 +16,14 @@ class DemoDaemonClient extends DaemonClient {
 
   @override
   bool get isDemo => true;
+
+  /// How long after hello demo-box raises its permission prompt. The
+  /// screenshot flow sets this high and calls [askPermission] itself so the
+  /// prompt lands on the screen it wants.
+  static Duration permissionDelay = const Duration(seconds: 4);
+
+  /// True for demo-box, the machine that carries the scripted prompt.
+  bool get _primary => info.id == fx.demoDaemonId;
 
   bool _done = false;
   final List<Timer> _timers = [];
@@ -79,7 +88,7 @@ class DemoDaemonClient extends DaemonClient {
     state = ConnState.connecting;
     notifyListeners();
     _later(const Duration(milliseconds: 300), () {
-      final h = fx.hello();
+      final h = fx.hello(info.id);
       for (final s in (h['sessions'] as List)) {
         final m = Map<String, dynamic>.from(s as Map);
         _json[m['key'] as String] = m;
@@ -90,12 +99,13 @@ class DemoDaemonClient extends DaemonClient {
       lastSeen = DateTime.now();
       lastError = null;
       _push('hello', h);
-      if (!_permissionShown) _later(const Duration(seconds: 4), _askPermission);
+      if (_primary && !_permissionShown) _later(permissionDelay, askPermission);
     });
   }
 
-  void _askPermission() {
-    if (_permissionShown) return;
+  /// Raises demo-box's one permission prompt now (no-op once shown).
+  void askPermission() {
+    if (_done || !_primary || _permissionShown) return;
     _permissionShown = true;
     _push('permission.pending', fx.permissionRequest());
     _upsert(fx.claude1, {'status': 'waiting_permission'});
@@ -180,15 +190,15 @@ class DemoDaemonClient extends DaemonClient {
         _tickers.remove(key)?.cancel();
         return {'ok': true};
       case 'repos.list':
-        return {'ok': true, 'data': fx.repos()};
+        return {'ok': true, 'data': fx.repos(info.id)};
       case 'skills.list':
         return {'ok': true, 'data': fx.skills(p['provider'] as String? ?? 'claude')};
       case 'accounts.get':
-        return {'ok': true, 'data': fx.accounts()};
+        return {'ok': true, 'data': fx.accounts(info.id)};
       case 'session.spawn':
         _spawned++;
         final provider = p['provider'] as String? ?? 'claude';
-        final dir = p['dir'] as String? ?? '/home/dev/src/porthole';
+        final dir = p['dir'] as String? ?? (_primary ? '/home/dev/src/porthole' : '/srv/ci/porthole');
         final prompt = (p['prompt'] as String? ?? '').trim();
         final id = 'demo-$provider-${2 + _spawned}';
         final k = '$provider:$id';

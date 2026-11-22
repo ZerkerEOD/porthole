@@ -32,8 +32,13 @@ class Notifier {
     } catch (_) {}
   }
 
+  /// Set by the screenshot flow (integration_test/demo_flow_test.dart) so no
+  /// OS permission dialog lands on top of the app while it is captured.
+  static bool suppressPrompts = false;
+
   Future<bool> requestPermission() async {
     await init();
+    if (suppressPrompts) return false;
     if (Platform.isAndroid) {
       final r = await _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
       return r ?? false;
