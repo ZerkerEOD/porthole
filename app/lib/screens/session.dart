@@ -301,6 +301,8 @@ class _PermissionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final input = req.toolInput;
     final detail = input?['command'] ?? input?['file_path'] ?? input?['url'] ?? input?['description'] ?? '';
+    final description = input?['description'];
+    final note = description is String && description.isNotEmpty && description != detail ? description : '';
     return Card(
       color: Theme.of(context).colorScheme.primaryContainer,
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -308,7 +310,8 @@ class _PermissionCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [Icon(Icons.security, color: Theme.of(context).colorScheme.primary, size: 18), const SizedBox(width: 8), Text('Permission: ${req.toolName}', style: const TextStyle(fontWeight: FontWeight.w600))]),
-          if (detail != '') Padding(padding: const EdgeInsets.only(top: 6), child: SelectableText('$detail', style: const TextStyle(fontFamily: 'monospace', fontSize: 12), maxLines: 8)),
+          if (detail != '') Padding(padding: const EdgeInsets.only(top: 6), child: SelectableText('$detail', style: const TextStyle(fontFamily: 'monospace', fontSize: 12), minLines: 1, maxLines: 8)),
+          if (note != '') Padding(padding: const EdgeInsets.only(top: 4), child: Text(note, style: Theme.of(context).textTheme.bodySmall)),
           const SizedBox(height: 8),
           Row(mainAxisAlignment: MainAxisAlignment.end, children: [
             TextButton(onPressed: () => client.answerPermission(req.id, 'deny'), child: const Text('Deny')),
