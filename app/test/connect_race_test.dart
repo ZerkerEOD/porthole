@@ -124,7 +124,27 @@ void main() {
     await c.connect(manual: true);
     expect(c.online, isTrue);
     expect(c.info.lastHost, vpn);
-    expect(net.dialed.first, vpn);
+    expect(net.dialed, [vpn], reason: 'the LAN dial never started');
+    // The host that never ran is recorded as skipped, not left untested.
+    expect(c.hostStatus[lan]?.reachable, isNull);
+    expect(c.hostStatus[lan]?.label, 'not needed ($vpn answered first)');
+    expect(c.hostStatus[lan]?.needsRepair, isFalse);
+    expect(c.routeNote, '', reason: 'connected over the first address, nothing failed');
+    c.close();
+  });
+
+  test('the route note names a fallback address and the ones that failed', () {
+    final c = ProbeClient(info(lastHost: lan));
+    expect(c.routeNote, '', reason: 'offline');
+    c.state = ConnState.connected;
+    expect(c.routeNote, 'via $lan');
+    c.hostStatus[vpn] = HostStatus(reachable: false, checkedAt: DateTime.now(), error: 'timed out', kind: HostErrorKind.timeout);
+    expect(c.routeNote, 'via $lan · $vpn unreachable (timed out)');
+    c.hostStatus[vpn] = HostStatus(reachable: null, checkedAt: DateTime.now(), error: 'not needed');
+    expect(c.routeNote, 'via $lan', reason: 'a skipped address is not a failed one');
+    c.info.lastHost = vpn;
+    c.hostStatus[lan] = HostStatus(reachable: false, checkedAt: DateTime.now(), error: 'no route to host');
+    expect(c.routeNote, '$lan unreachable (no route to host)');
     c.close();
   });
 
@@ -163,11 +183,15 @@ void main() {
         if (host == vpn) throw const SocketException('x', osError: OSError('No route to host', 113));
       },
     );
+    final probing = <Set<String>>[];
+    c.addListener(() => probing.add(Set.of(c.probingHosts)));
     await c.probeHosts();
     expect(c.hostStatus[lan]?.reachable, isTrue);
     expect(c.hostStatus[vpn]?.error, 'no route to host');
     expect(c.state, ConnState.disconnected);
     expect(c.lastError, isNull);
+    expect(probing.first, isNotEmpty, reason: 'listeners see the probe in flight');
+    expect(c.probingHosts, isEmpty);
     c.close();
   });
 

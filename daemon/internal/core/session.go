@@ -44,8 +44,8 @@ type Session struct {
 	Question *Question `json:"question,omitempty"`
 }
 
-// Question is a pending AskUserQuestion call: the tool input as written to
-// the transcript plus the tool use id, which question.answer echoes back.
+// Question is a pending AskUserQuestion call: the tool input as the hook
+// reported it plus an opaque id, which question.answer echoes back.
 type Question struct {
 	ID        string         `json:"id"`
 	Questions []QuestionItem `json:"questions"`
@@ -62,10 +62,12 @@ type QuestionItem struct {
 	Options     []QuestionOption `json:"options"`
 }
 
-// QuestionOption is one choice of a question.
+// QuestionOption is one choice of a question. Preview carries the optional
+// code or layout sample the CLI shows for the option.
 type QuestionOption struct {
 	Label       string `json:"label"`
 	Description string `json:"description"`
+	Preview     string `json:"preview,omitempty"`
 }
 
 // Listener receives registry changes. Implementations must not block.

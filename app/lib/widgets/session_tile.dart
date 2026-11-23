@@ -55,7 +55,9 @@ class PermissionBanner extends StatelessWidget {
   }
 }
 
-/// Small state chip for a machine.
+/// Small state chip for a machine. When online, the label also says which
+/// address carries the connection if it is not the first one, and which
+/// other addresses failed their last check.
 class MachineStateChip extends StatelessWidget {
   const MachineStateChip({super.key, required this.client, this.compact = false});
   final DaemonClient client;
@@ -63,8 +65,9 @@ class MachineStateChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final route = client.routeNote;
     final (label, color) = switch (client.state) {
-      ConnState.connected => ('online', const Color(0xFF3DDC84)),
+      ConnState.connected => (route.isEmpty ? 'online' : (route.startsWith('via') ? 'online $route' : 'online · $route'), const Color(0xFF3DDC84)),
       ConnState.connecting => ('connecting', const Color(0xFFFFD54F)),
       ConnState.disconnected => ('reconnecting', const Color(0xFFFFD54F)),
       ConnState.offline => client.needsRepair ? ('pair again', crimsonBright) : ('offline${client.lastSeen != null ? ' · seen ${relAgo(client.lastSeen)}' : ''}', cs.outline),

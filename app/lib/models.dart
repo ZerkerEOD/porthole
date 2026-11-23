@@ -1,6 +1,10 @@
 /// Data types mirroring the daemon's wire protocol (proto/protocol.md).
 library;
 
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 class DaemonInfo {
   DaemonInfo({
     required this.id,
@@ -152,11 +156,15 @@ class ToolUse {
 }
 
 class QuestionOption {
-  const QuestionOption({required this.label, this.description = ''});
+  const QuestionOption({required this.label, this.description = '', this.preview = ''});
   QuestionOption.fromJson(Map<String, dynamic> j)
       : label = j['label'] as String? ?? '',
-        description = j['description'] as String? ?? '';
+        description = j['description'] as String? ?? '',
+        preview = j['preview'] as String? ?? '';
   final String label, description;
+  /// Optional code or text sample the daemon attaches to an option; shown
+  /// in a monospace block under it.
+  final String preview;
 }
 
 /// One question inside a pending question set.
@@ -175,7 +183,7 @@ class QuestionSpec {
 /// A question set the session is waiting on, from `Session.question` or
 /// from an unanswered question tool use in the transcript.
 class PendingQuestion {
-  const PendingQuestion({required this.id, required this.questions});
+  PendingQuestion({required this.id, required this.questions});
   PendingQuestion.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String? ?? '',
         questions = _specs(j['questions']);
@@ -185,7 +193,56 @@ class PendingQuestion {
   final String id;
   final List<QuestionSpec> questions;
 
+  /// A stable digest of the questions themselves (not the id), so a draft
+  /// survives the daemon re-issuing the same set and is dropped when the
+  /// set changes.
+  late final String hash = _digest();
+
+  String _digest() {
+    final canon = jsonEncode([
+      for (final q in questions)
+        {
+          'q': q.question,
+          'h': q.header,
+          'm': q.multiSelect,
+          'o': [for (final o in q.options) [o.label, o.description, o.preview]],
+        },
+    ]);
+    return sha1.convert(utf8.encode(canon)).toString().substring(0, 16);
+  }
+
   static List<QuestionSpec> _specs(dynamic raw) => [for (final q in (raw as List? ?? [])) if (q is Map) QuestionSpec.fromJson(q.cast<String, dynamic>())];
+}
+
+/// Answers in progress for one question set, kept per machine until they are
+/// submitted or the question goes away. Keys are question indices.
+class QuestionDraft {
+  QuestionDraft({Map<int, int>? single, Map<int, Set<int>>? multi, Map<int, String>? other, this.page = 0})
+      : single = single ?? {},
+        multi = multi ?? {},
+        other = other ?? {};
+
+  final Map<int, int> single;
+  final Map<int, Set<int>> multi;
+  final Map<int, String> other;
+  /// The page the flow was on when it was last closed.
+  int page;
+
+  bool answered(int i) => single[i] != null || (multi[i]?.isNotEmpty ?? false) || (other[i]?.trim().isNotEmpty ?? false);
+
+  Map<String, dynamic> toJson() => {
+        'single': single.map((k, v) => MapEntry('$k', v)),
+        'multi': multi.map((k, v) => MapEntry('$k', (v.toList()..sort()))),
+        'other': other.map((k, v) => MapEntry('$k', v)),
+        'page': page,
+      };
+
+  static QuestionDraft fromJson(Map<String, dynamic> j) => QuestionDraft(
+        single: {for (final e in (j['single'] as Map? ?? {}).entries) if (e.value is int) int.parse('${e.key}'): e.value as int},
+        multi: {for (final e in (j['multi'] as Map? ?? {}).entries) int.parse('${e.key}'): {...(e.value as List? ?? []).whereType<int>()}},
+        other: {for (final e in (j['other'] as Map? ?? {}).entries) if (e.value is String) int.parse('${e.key}'): e.value as String},
+        page: j['page'] as int? ?? 0,
+      );
 }
 
 /// One answer per question, in order: `index` for a single choice,

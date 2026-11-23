@@ -2,21 +2,36 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 
-/// Multi-line input with slash-command autocomplete.
+/// Multi-line input with slash-command autocomplete. The text is editable
+/// while the machine is unreachable; only Send waits for the connection.
 class Composer extends StatefulWidget {
-  const Composer({super.key, required this.onSend, required this.skills, this.enabled = true, this.hint = 'Message'});
+  const Composer({super.key, required this.onSend, required this.skills, this.enabled = true, this.online = true, this.hint = 'Message', this.initialText = '', this.onChanged});
   final Future<void> Function(String text) onSend;
   final List<Skill> skills;
   final bool enabled;
+  /// False while the connection is down: Send is disabled and the field
+  /// says so.
+  final bool online;
   final String hint;
+  /// The draft restored into the field when the composer is built.
+  final String initialText;
+  /// Every edit, and an empty string once a send went through.
+  final void Function(String text)? onChanged;
   @override
   State<Composer> createState() => _ComposerState();
 }
 
 class _ComposerState extends State<Composer> {
-  final _ctl = TextEditingController();
+  late final _ctl = TextEditingController(text: widget.initialText);
   final _focus = FocusNode();
   bool _sending = false;
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
 
   List<Skill> get _matches {
     final t = _ctl.text;
@@ -34,6 +49,7 @@ class _ComposerState extends State<Composer> {
     try {
       await widget.onSend(text);
       _ctl.clear();
+      widget.onChanged?.call('');
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
@@ -66,6 +82,7 @@ class _ComposerState extends State<Composer> {
                       onTap: () {
                         _ctl.text = '/${s.name} ';
                         _ctl.selection = TextSelection.collapsed(offset: _ctl.text.length);
+                        widget.onChanged?.call(_ctl.text);
                         setState(() {});
                         _focus.requestFocus();
                       },
@@ -84,9 +101,13 @@ class _ComposerState extends State<Composer> {
                   minLines: 1,
                   maxLines: 6,
                   textInputAction: TextInputAction.newline,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (t) {
+                    widget.onChanged?.call(t);
+                    setState(() {});
+                  },
                   decoration: InputDecoration(
                     hintText: widget.enabled ? widget.hint : 'Read-only: not running in tmux',
+                    helperText: widget.enabled && !widget.online ? 'Sends when reconnected' : null,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
                     filled: true,
                     isDense: true,
@@ -94,7 +115,7 @@ class _ComposerState extends State<Composer> {
                   ),
                 ),
               ),
-              IconButton.filled(onPressed: widget.enabled && !_sending ? _send : null, icon: _sending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send)),
+              IconButton.filled(onPressed: widget.enabled && widget.online && !_sending ? _send : null, icon: _sending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send)),
             ]),
           ),
         ]),

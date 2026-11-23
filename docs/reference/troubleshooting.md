@@ -22,6 +22,15 @@ Start with `porthole doctor` and `porthole status` on the machine. Daemon logs: 
     the command that opens TCP port 7433 (or your `port`). VPN traffic often
     bypasses the host firewall; LAN traffic does not.
 
+**The VPN address times out while the LAN address works**
+:   The phone's VPN client must be a peer of the same network as the machine,
+    with a policy that lets it reach this peer. `porthole status` shows whether
+    any attempt arrived from the VPN range; if none did, the phone has no
+    route to that address. With NetBird, the phone must appear in
+    `netbird status --detail` on the machine, under the same controller. The app
+    keeps working over the LAN address and shows the VPN address as
+    unreachable under **Machines**.
+
 **"Certificate fingerprint mismatch"**
 :   The daemon's certificate changed because its state directory
     (`~/.local/state/porthole/`) was deleted or the daemon moved to a new

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -10,7 +12,8 @@ import 'pairing.dart';
 import 'sessions.dart';
 
 /// Manage paired machines: rename, mute, auto-connect, connect now, forget.
-/// Opening it checks every address of every machine.
+/// Opening it checks every address of every machine, and again every 30 s
+/// while it stays open.
 class MachinesScreen extends StatefulWidget {
   const MachinesScreen({super.key});
 
@@ -19,10 +22,26 @@ class MachinesScreen extends StatefulWidget {
 }
 
 class _MachinesScreenState extends State<MachinesScreen> {
+  Timer? _ticker;
+  int _ticks = 0;
+
   @override
   void initState() {
     super.initState();
     context.read<AppStore>().probeAll();
+    // Every 10 s the "checked … ago" ages refresh; every third tick probes.
+    _ticker = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!mounted) return;
+      _ticks++;
+      if (_ticks % 3 == 0) context.read<AppStore>().probeAll();
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
   }
 
   @override
@@ -97,6 +116,7 @@ class _MachineCard extends StatelessWidget {
                 _HostRow(
                   host: h,
                   status: client.hostStatus[h],
+                  checking: client.probingHosts.contains(h),
                   via: client.online && d.lastHost == h,
                   onTap: () => store.preferHost(d, h),
                 ),
@@ -145,22 +165,36 @@ class _MachineCard extends StatelessWidget {
   }
 }
 
+/// "12 s ago", "3 min ago", "2 h ago".
+String checkedAgo(DateTime t) {
+  final d = DateTime.now().difference(t);
+  if (d.inSeconds < 60) return '${d.inSeconds} s ago';
+  if (d.inMinutes < 60) return '${d.inMinutes} min ago';
+  return '${d.inHours} h ago';
+}
+
 /// One address of a machine: status dot, the address, a "via" chip while it
-/// carries the connection, and the latency or the short error. Tapping it
-/// makes it the preferred address.
+/// carries the connection, and the latency or the short error with how long
+/// ago it was checked. Tapping it makes it the preferred address.
 class _HostRow extends StatelessWidget {
-  const _HostRow({required this.host, required this.status, required this.via, required this.onTap});
+  const _HostRow({required this.host, required this.status, required this.via, required this.onTap, this.checking = false});
   final String host;
   final HostStatus? status;
   final bool via;
+  final bool checking;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final s = status;
-    final color = s == null ? cs.outline : (s.reachable ? const Color(0xFF3DDC84) : crimsonBright);
-    final label = s == null ? 'untested' : s.label;
+    final failed = s?.reachable == false;
+    final color = s == null || s.reachable == null ? cs.outline : (s.reachable == true ? const Color(0xFF3DDC84) : crimsonBright);
+    final label = checking
+        ? 'checking…'
+        : s == null
+            ? 'untested'
+            : '${s.label} · checked ${checkedAgo(s.checkedAt)}';
     return Tooltip(
       message: 'Connect through this address',
       child: InkWell(
@@ -178,7 +212,7 @@ class _HostRow extends StatelessWidget {
                 decoration: BoxDecoration(color: cs.primaryContainer, borderRadius: BorderRadius.circular(8)),
                 child: Text('via', style: TextStyle(fontSize: 10, color: cs.onPrimaryContainer)),
               ),
-            Text(label, style: TextStyle(fontSize: 11, color: s == null || s.reachable ? cs.onSurfaceVariant : crimsonBright)),
+            Text(label, style: TextStyle(fontSize: 11, color: failed && !checking ? crimsonBright : cs.onSurfaceVariant)),
           ]),
         ),
       ),

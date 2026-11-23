@@ -48,10 +48,12 @@ class HostStatus {
     this.localNetworkHint = false,
   });
 
-  final bool reachable;
+  /// True when the host answered, false when it failed, null when the
+  /// attempt was never made (another address won the race first).
+  final bool? reachable;
   final DateTime checkedAt;
   final int? latencyMs;
-  /// Short text for a failed host ("timed out", "connection refused").
+  /// Short text for a failed or skipped host ("timed out", "not needed").
   final String? error;
   final HostErrorKind? kind;
   /// True when the failure looks like iOS blocking local-network access.
@@ -61,7 +63,7 @@ class HostStatus {
   bool get needsRepair => kind == HostErrorKind.unauthorized || kind == HostErrorKind.certificate;
 
   /// What the host row shows: latency when reachable, the error otherwise.
-  String get label => reachable ? '${latencyMs ?? 0} ms' : (error ?? 'unreachable');
+  String get label => reachable == true ? '${latencyMs ?? 0} ms' : (error ?? (reachable == null ? 'not needed' : 'unreachable'));
 }
 
 /// A socket error reduced to a kind and a short message.
@@ -323,7 +325,7 @@ class DaemonClient extends ChangeNotifier {
   DaemonClient(this.info, {HostConnector? connector, HostProbe? prober})
       : _connector = connector,
         _prober = prober {
-    _restoreCache();
+    restored = _restoreCache();
   }
 
   final DaemonInfo info;
@@ -347,6 +349,15 @@ class DaemonClient extends ChangeNotifier {
   Map<String, dynamic>? accounts;
   /// Latest result per address, from connects and probes.
   final Map<String, HostStatus> hostStatus = {};
+  /// Addresses with a health probe in flight right now.
+  final Set<String> probingHosts = {};
+  /// Answers in progress for pending questions, keyed
+  /// `'<session key>:<question hash>'`; see [QuestionDraft].
+  final Map<String, QuestionDraft> questionDrafts = {};
+  /// Unsent composer text per session key.
+  final Map<String, String> composerDrafts = {};
+  /// Completes once the last-seen cache and the drafts have been read back.
+  late final Future<void> restored;
 
   /// Per-session event streams and pane streams.
   final _eventCtl = StreamController<(String, List<Event>)>.broadcast();
@@ -372,8 +383,25 @@ class DaemonClient extends ChangeNotifier {
   int _backoff = 1;
   Timer? _reconnect;
   bool _probing = false;
+  bool _probedSinceHello = false;
 
   bool get online => state == ConnState.connected;
+
+  /// How the connection is routed, for the machine subtitle: "via HOST"
+  /// when a fallback address carries it, and any other address whose last
+  /// check failed. Empty when offline or when there is nothing to say.
+  String get routeNote {
+    if (!online) return '';
+    final via = info.lastHost;
+    final parts = <String>[];
+    if (via != null && info.hosts.isNotEmpty && via != info.hosts.first) parts.add('via $via');
+    for (final h in info.hosts) {
+      if (h == via) continue;
+      final st = hostStatus[h];
+      if (st != null && st.reachable == false) parts.add('$h unreachable (${st.error ?? 'failed'})');
+    }
+    return parts.join(' · ');
+  }
 
   /// The preferred address first, then the rest in the daemon's order.
   List<String> get orderedHosts => mergeHosts([?info.lastHost], info.hosts);
@@ -421,8 +449,14 @@ class DaemonClient extends ChangeNotifier {
         ws.close();
         return;
       }
+      // Addresses that never started because the winner arrived during the
+      // head start are recorded too, so none stays "untested".
+      for (final h in hosts) {
+        if (!race.outcomes.containsKey(h)) hostStatus[h] = HostStatus(reachable: null, checkedAt: DateTime.now(), error: 'not needed ($host answered first)');
+      }
       ws.pingInterval = const Duration(seconds: 20);
       _ws = ws;
+      _probedSinceHello = false;
       info.lastHost = host;
       state = ConnState.connected;
       lastError = null;
@@ -484,6 +518,8 @@ class DaemonClient extends ChangeNotifier {
 
   Future<void> _probeOne(String host) async {
     final sw = Stopwatch()..start();
+    probingHosts.add(host);
+    notifyListeners();
     HostStatus status;
     try {
       await (_prober ?? _probeHealth)(host).timeout(const Duration(seconds: 3));
@@ -499,6 +535,7 @@ class DaemonClient extends ChangeNotifier {
         localNetworkHint: err.localNetworkHint,
       );
     }
+    probingHosts.remove(host);
     if (_closed) return;
     hostStatus[host] = status;
     notifyListeners();
@@ -561,10 +598,14 @@ class DaemonClient extends ChangeNotifier {
         daemonName = p['name'] as String? ?? info.name;
         daemonVersion = p['version'] as String? ?? '';
         features = (p['features'] as Map<String, dynamic>? ?? {}).map((k, v) => MapEntry(k, v == true));
+        final before = Map.of(sessions);
         sessions.clear();
         for (final s in (p['sessions'] as List? ?? [])) {
           final ss = Session.fromJson(s as Map<String, dynamic>);
           sessions[ss.key] = ss;
+        }
+        for (final old in before.values) {
+          _reconcileDraft(old, sessions[old.key]);
         }
         permissions.clear();
         for (final pr in (p['permissions'] as List? ?? [])) {
@@ -581,13 +622,21 @@ class DaemonClient extends ChangeNotifier {
         notifyListeners();
         _snapshot();
         _resubscribe();
+        // One check of the other addresses per connection, so the machine
+        // row can say which routes work right now.
+        if (!_probedSinceHello && _ws != null && info.hosts.length > 1) {
+          _probedSinceHello = true;
+          unawaited(probeHosts());
+        }
       case 'session.upsert':
         final s = Session.fromJson(payload as Map<String, dynamic>);
+        _reconcileDraft(sessions[s.key], s);
         sessions[s.key] = s;
         notifyListeners();
         _snapshotSoon();
       case 'session.removed':
         final key = (payload as Map<String, dynamic>)['key'];
+        _reconcileDraft(sessions[key], null);
         sessions.remove(key);
         _eventKeys.remove(key);
         _paneKeys.remove(key);
@@ -751,6 +800,99 @@ class DaemonClient extends ChangeNotifier {
     return Session.fromJson(r['data'] as Map<String, dynamic>);
   }
 
+  // ---- drafts (SharedPreferences, debounced) ----
+
+  String get _draftsKey => 'drafts.${info.id}';
+  Timer? _draftTimer;
+
+  static String questionDraftKey(String sessionKey, PendingQuestion q) => '$sessionKey:${q.hash}';
+
+  /// The draft for [q] on [sessionKey], if one was started.
+  QuestionDraft? questionDraft(String sessionKey, PendingQuestion q) => questionDrafts[questionDraftKey(sessionKey, q)];
+
+  /// Records [draft] under [key] (see [questionDraftKey]). Listeners hear
+  /// about a draft appearing, not about every edit.
+  void setQuestionDraft(String key, QuestionDraft draft) {
+    final fresh = !questionDrafts.containsKey(key);
+    questionDrafts[key] = draft;
+    _saveDraftsSoon();
+    if (fresh) notifyListeners();
+  }
+
+  void dropQuestionDraft(String key) {
+    if (questionDrafts.remove(key) == null) return;
+    _saveDraftsSoon();
+    notifyListeners();
+  }
+
+  /// Keeps the unsent composer text for [sessionKey]; empty text forgets it.
+  void setComposerDraft(String sessionKey, String text) {
+    if (text.isEmpty) {
+      if (composerDrafts.remove(sessionKey) == null) return;
+    } else {
+      if (composerDrafts[sessionKey] == text) return;
+      composerDrafts[sessionKey] = text;
+    }
+    _saveDraftsSoon();
+  }
+
+  /// Carries the composer text over when a placeholder becomes the real
+  /// session.
+  void moveComposerDraft(String from, String to) {
+    final t = composerDrafts.remove(from);
+    if (t != null && t.isNotEmpty) composerDrafts[to] = t;
+    if (t != null) _saveDraftsSoon();
+  }
+
+  /// Drops the question draft when the session's question clears or turns
+  /// into a different set.
+  void _reconcileDraft(Session? old, Session? fresh) {
+    final oq = old?.question;
+    if (oq == null) return;
+    final nq = fresh?.question;
+    if (nq != null && nq.hash == oq.hash) return;
+    dropQuestionDraft(questionDraftKey(old!.key, oq));
+  }
+
+  void _saveDraftsSoon() {
+    if (_closed) return;
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 500), _saveDrafts);
+  }
+
+  Future<void> _saveDrafts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (questionDrafts.isEmpty && composerDrafts.isEmpty) {
+        await prefs.remove(_draftsKey);
+        return;
+      }
+      await prefs.setString(
+        _draftsKey,
+        jsonEncode({
+          'questions': questionDrafts.map((k, v) => MapEntry(k, v.toJson())),
+          'composer': composerDrafts,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _restoreDrafts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_draftsKey);
+      if (raw == null) return;
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      for (final e in (j['questions'] as Map? ?? {}).entries) {
+        if (e.value is Map) questionDrafts.putIfAbsent('${e.key}', () => QuestionDraft.fromJson((e.value as Map).cast<String, dynamic>()));
+      }
+      for (final e in (j['composer'] as Map? ?? {}).entries) {
+        if (e.value is String && (e.value as String).isNotEmpty) composerDrafts.putIfAbsent('${e.key}', () => e.value as String);
+      }
+      notifyListeners();
+    } catch (_) {}
+  }
+
   // ---- last-seen cache (SharedPreferences: titles and paths only) ----
 
   String get _cacheKey => 'sessions.${info.id}';
@@ -770,6 +912,7 @@ class DaemonClient extends ChangeNotifier {
   }
 
   Future<void> _restoreCache() async {
+    await _restoreDrafts();
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_cacheKey);
@@ -794,12 +937,14 @@ class DaemonClient extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_cacheKey);
+      await prefs.remove(_draftsKey);
     } catch (_) {}
   }
 
   void close() {
     _closed = true;
     _snapTimer?.cancel();
+    _draftTimer?.cancel();
     _reconnect?.cancel();
     _ws?.close();
     _eventCtl.close();

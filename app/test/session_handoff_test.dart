@@ -5,51 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:porthole/client.dart';
 import 'package:porthole/models.dart';
-import 'package:porthole/screens/session.dart';
-import 'package:porthole/widgets/question_card.dart';
+import 'package:porthole/screens/question_flow.dart';
+import 'package:porthole/widgets/composer.dart';
 import 'package:porthole/widgets/terminal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-DaemonInfo info() => DaemonInfo(id: 'm', name: 'desk', hosts: ['10.0.0.2'], port: 7433, fingerprint: 'fp', token: 't', deviceId: 'd');
-
-Map<String, dynamic> session(String key, {bool pending = false, String pane = '%5', String tmux = 'ph-x', String title = '', String status = 'busy', Map<String, dynamic>? question}) => {
-      'key': key,
-      'id': key.split(':').last,
-      'provider': 'claude',
-      'title': title,
-      'status': status,
-      'running': true,
-      'controllable': true,
-      'pane_id': pane,
-      'tmux_session': tmux,
-      'pending': pending,
-      'question': ?question,
-    };
-
-Map<String, dynamic> questionJson({String id = 'toolu_q1', bool multi = false, bool two = false}) => {
-      'id': id,
-      'questions': [
-        {
-          'question': 'Which transport should the relay use?',
-          'header': 'Transport',
-          'multiSelect': multi,
-          'options': [
-            {'label': 'WebSocket', 'description': 'Keeps one socket open'},
-            {'label': 'Polling', 'description': 'Simpler, more battery'},
-          ],
-        },
-        if (two)
-          {
-            'question': 'Ship it today?',
-            'header': 'Timing',
-            'multiSelect': false,
-            'options': [
-              {'label': 'Yes', 'description': ''},
-              {'label': 'No', 'description': ''},
-            ],
-          },
-      ],
-    };
+import 'fakes.dart';
 
 /// A loopback daemon: sends hello on every connection, records every frame,
 /// answers requests, and can drop the socket to force a reconnect.
@@ -98,63 +59,6 @@ class FakeDaemon {
   Future<void> stop() => server.close(force: true);
 }
 
-/// An in-process client for widget tests: answers requests itself and
-/// injects daemon frames through the real parser.
-class FakeClient extends DaemonClient {
-  FakeClient() : super(info()) {
-    state = ConnState.connected;
-  }
-  final List<(String, Map<String, dynamic>)> requests = [];
-  final Map<String, List<Map<String, dynamic>>> transcripts = {};
-  String? refuseQuestion;
-  String? failPane;
-
-  void setState(ConnState s) {
-    state = s;
-    notifyListeners();
-  }
-
-  @override
-  Future<Map<String, dynamic>> request(String type, [Map<String, dynamic>? payload]) async {
-    final p = payload ?? const <String, dynamic>{};
-    requests.add((type, p));
-    await null; // a microtask, so a plain pump() delivers the answer
-    switch (type) {
-      case 'session.subscribe':
-        return {'ok': true, 'data': {'events': transcripts[p['key']] ?? const [], 'has_more': false}};
-      case 'pane.subscribe':
-        if (failPane != null) throw StateError(failPane!);
-        return {'ok': true, 'data': {'screen': {'lines': ['\$ waiting'], 'width': 80, 'height': 24}}};
-      case 'skills.list':
-        return {'ok': true, 'data': const []};
-      case 'question.answer':
-        if (refuseQuestion != null) throw StateError(refuseQuestion!);
-        return {'ok': true};
-      default:
-        return {'ok': true};
-    }
-  }
-
-  void inject(String type, Map<String, dynamic> payload) => handleFrame({'type': type, 'payload': payload});
-  List<Map<String, dynamic>> sent(String type) => [for (final r in requests) if (r.$1 == type) r.$2];
-}
-
-Future<FakeClient> pumpSession(WidgetTester tester, String key, {List<Map<String, dynamic>>? sessions, FakeClient? client}) async {
-  final c = client ?? FakeClient();
-  c.inject('hello', {'name': 'desk', 'version': '1', 'sessions': sessions ?? [session(key)]});
-  await tester.pumpWidget(MaterialApp(home: SessionScreen(client: c, sessionKey: key)));
-  await tester.pump();
-  await tester.pump();
-  return c;
-}
-
-/// Tears the screen down and cancels the client's cache timer, which would
-/// otherwise still be pending when the test ends.
-Future<void> finish(WidgetTester tester, FakeClient c) async {
-  await tester.pumpWidget(const SizedBox());
-  c.close();
-}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -196,6 +100,26 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(snapshots, ['claude:a'], reason: 'the fresh pane snapshot reaches the terminal');
       expect(c.lastFrameAt, isNotNull);
+      c.close();
+    });
+
+    test('the first hello on a connection probes the other addresses once', () async {
+      final probed = <String>[];
+      final two = DaemonInfo(id: 'm', name: 'desk', hosts: ['10.0.0.2', '10.0.0.3'], port: 7433, fingerprint: 'fp', token: 't', deviceId: 'd');
+      final c = DaemonClient(two, connector: net.connect, prober: (host) async => probed.add(host));
+      await c.connect(manual: true);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(probed, unorderedEquals(['10.0.0.2', '10.0.0.3']));
+      expect(c.hostStatus['10.0.0.3']?.reachable, isTrue);
+      expect(c.probingHosts, isEmpty);
+      // A reconnect probes again; nothing in between does. Both addresses
+      // dial the same loopback, so the race left two server-side sockets.
+      for (final ws in List.of(net.sockets)) {
+        await ws.close();
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
+      expect(c.online, isTrue);
+      expect(probed.length, 4);
       c.close();
     });
 
@@ -325,69 +249,75 @@ void main() {
       await finish(tester, c);
     });
 
-    testWidgets('the question card answers a single choice and hides when the daemon clears it', (tester) async {
+    testWidgets('the question strip shows in both views, opens the flow, and hides once answered', (tester) async {
       final c = await pumpSession(tester, 'claude:a', sessions: [session('claude:a', status: 'waiting_input', question: questionJson())]);
-      expect(find.byType(QuestionCard), findsOneWidget);
-      expect(find.text('Transport'), findsOneWidget);
-      expect(find.text('Which transport should the relay use?'), findsOneWidget);
-      expect(find.text('WebSocket'), findsOneWidget);
-      expect(find.text('Keeps one socket open'), findsOneWidget);
-      expect(find.text('Waiting for your answer'), findsNothing, reason: 'the card replaces the banner');
-      final submit = find.widgetWithText(FilledButton, 'Submit');
-      expect(tester.widget<FilledButton>(submit).onPressed, isNull);
-      await tester.tap(find.text('Polling'));
-      await tester.pump();
-      expect(tester.widget<FilledButton>(submit).onPressed, isNotNull);
-      await tester.tap(submit);
-      await tester.pump();
-      await tester.pump();
-      expect(c.sent('question.answer'), [
-        {'key': 'claude:a', 'id': 'toolu_q1', 'answers': [{'index': 1}]},
-      ]);
-      // Answered from here: the card is gone before the daemon catches up.
-      expect(find.byType(QuestionCard), findsNothing);
-      c.inject('session.upsert', session('claude:a', status: 'busy'));
-      await tester.pump();
-      expect(find.byType(QuestionCard), findsNothing);
-      await finish(tester, c);
-    });
-
-    testWidgets('multi-select and typed answers, a refusal, and the terminal shortcut', (tester) async {
-      final c = await pumpSession(tester, 'claude:a', sessions: [session('claude:a', status: 'waiting_input', question: questionJson(multi: true, two: true))]);
-      c.refuseQuestion = 'the session moved on';
-      final submit = find.widgetWithText(FilledButton, 'Submit');
-      await tester.tap(find.text('WebSocket'));
-      await tester.tap(find.text('Polling'));
-      await tester.pump();
-      expect(tester.widget<FilledButton>(submit).onPressed, isNull, reason: 'the second question is unanswered');
-      await tester.enterText(find.widgetWithText(TextField, 'Other').last, 'Only if the tests pass');
-      await tester.pump();
-      await tester.tap(submit);
-      await tester.pump();
-      await tester.pump();
-      expect(c.sent('question.answer').single['answers'], [
-        {'indices': [0, 1]},
-        {'text': 'Only if the tests pass'},
-      ]);
-      expect(find.text('the session moved on'), findsOneWidget);
-      expect(find.byType(QuestionCard), findsOneWidget);
-      await tester.tap(find.text('Open terminal'));
+      expect(find.text('Claude is asking a question'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Answer'), findsOneWidget);
+      expect(find.text('Polling'), findsNothing, reason: 'no pinned card');
+      expect(find.text('Waiting for your answer'), findsNothing, reason: 'the strip replaces the banner');
+      await tester.tap(find.byTooltip('Terminal view'));
       await tester.pump();
       await tester.pump();
       expect(find.byType(TerminalView), findsOneWidget);
-      expect(find.byType(QuestionCard), findsOneWidget, reason: 'pinned in terminal mode too');
+      expect(find.text('Claude is asking a question'), findsOneWidget, reason: 'shown in terminal mode too');
+
+      await tester.tap(find.text('Answer'));
+      await tester.pumpAndSettle();
+      expect(find.byType(QuestionFlowScreen), findsOneWidget);
+      expect(find.text('Question 1 of 1'), findsOneWidget);
+      await tester.tap(find.text('Polling'));
+      await tester.pump();
+      await tester.tap(find.text('Next'));
+      await tester.pump();
+      await tester.tap(find.text('Submit'));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(c.sent('question.answer'), [
+        {'key': 'claude:a', 'id': 'toolu_q1', 'answers': [{'index': 1}]},
+      ]);
+      // Answered from here: the strip is gone before the daemon catches up.
+      expect(find.byType(QuestionFlowScreen), findsNothing);
+      expect(find.text('Claude is asking a question'), findsNothing);
+      expect(c.questionDrafts, isEmpty);
+      c.inject('session.upsert', session('claude:a', status: 'busy'));
+      await tester.pump();
+      expect(find.text('Claude is asking a question'), findsNothing);
       await finish(tester, c);
     });
 
-    testWidgets('a question tool use without a result pins the card until its result arrives', (tester) async {
+    testWidgets('a closed flow leaves a draft on the strip; the terminal toggle says so; the daemon clearing the question drops it', (tester) async {
+      final c = await pumpSession(tester, 'claude:a', sessions: [session('claude:a', status: 'waiting_input', question: questionJson(multi: true, two: true))]);
+      expect(find.text('Claude is asking 2 questions'), findsOneWidget);
+      await tester.tap(find.text('Answer'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('WebSocket'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(FilledButton, 'Answer (draft saved)'), findsOneWidget);
+      expect(c.questionDrafts.keys.single, startsWith('claude:a:'));
+      await tester.tap(find.byTooltip('Terminal view'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Draft answers are kept until you submit. The terminal shows the live dialog.'), findsOneWidget);
+      // The question was answered in the terminal: the draft goes with it.
+      c.inject('session.upsert', session('claude:a', status: 'busy'));
+      await tester.pump();
+      expect(c.questionDrafts, isEmpty);
+      expect(find.textContaining('is asking'), findsNothing);
+      await finish(tester, c);
+    });
+
+    testWidgets('a question tool use without a result is not pinned; the transcript tile shows the answer', (tester) async {
       final c = FakeClient();
       c.transcripts['claude:a'] = [
         {'seq': 1, 'type': 'user', 'text': 'Pick a transport'},
         {'seq': 2, 'type': 'tool.use', 'tool': {'id': 'toolu_q1', 'name': 'AskUserQuestion', 'input': {'questions': questionJson()['questions']}}},
       ];
       await pumpSession(tester, 'claude:a', sessions: [session('claude:a', status: 'waiting_input')], client: c);
-      expect(find.byType(QuestionCard), findsOneWidget);
-      expect(find.text('Question'), findsNWidgets(2), reason: 'the pinned card and the transcript tile');
+      expect(find.textContaining('is asking'), findsNothing, reason: 'the daemon has no question id to answer with');
+      expect(find.text('Question'), findsOneWidget, reason: 'the transcript tile only');
+      expect(find.text('Waiting for your answer'), findsOneWidget);
       c.inject('event', {
         'key': 'claude:a',
         'events': [
@@ -395,12 +325,51 @@ void main() {
         ],
       });
       await tester.pump();
-      expect(find.byType(QuestionCard), findsNothing);
       expect(find.text('Answered: WebSocket'), findsOneWidget);
       // Replayed history (a reconnect) adds nothing twice.
       c.inject('event', {'key': 'claude:a', 'events': c.transcripts['claude:a']!});
       await tester.pump();
       expect(find.text('Pick a transport'), findsOneWidget);
+      await finish(tester, c);
+    });
+
+    testWidgets('the offline banner appears and clears; the composer draft survives the mode toggle and session.replaced', (tester) async {
+      const old = 'claude:pending:%5';
+      final c = await pumpSession(tester, old, sessions: [session(old, pending: true, title: 'New session')]);
+      await tester.enterText(find.byType(TextField), 'hello there');
+      await tester.pump();
+      expect(c.composerDrafts[old], 'hello there');
+      c.setState(ConnState.disconnected);
+      await tester.pump();
+      expect(find.text('Connection to desk lost. Reconnecting…'), findsOneWidget);
+      expect(find.text('Sends when reconnected'), findsOneWidget);
+      expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.send)).onPressed, isNull);
+      expect(find.text('hello there'), findsOneWidget, reason: 'the composer stays editable');
+      await tester.tap(find.byTooltip('Terminal view'));
+      await tester.pump();
+      expect(find.text('hello there'), findsOneWidget, reason: 'the terminal composer shares the draft');
+      c.setState(ConnState.connected);
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Connection to desk lost. Reconnecting…'), findsNothing);
+      expect(find.text('Sends when reconnected'), findsNothing);
+      expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.send)).onPressed, isNotNull);
+
+      c.inject('session.upsert', session('claude:real', title: 'Real one'));
+      c.inject('session.replaced', {'old': old, 'new': 'claude:real'});
+      c.inject('session.removed', {'key': old});
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Real one'), findsOneWidget);
+      expect(find.text('hello there'), findsOneWidget, reason: 'the draft follows the real session');
+      expect(c.composerDrafts, {'claude:real': 'hello there'});
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+      await tester.pump();
+      expect(c.sent('session.input').single['text'], 'hello there');
+      expect(c.composerDrafts, isEmpty, reason: 'cleared on send');
+      expect(find.byType(Composer), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1)); // the draft save debounce
       await finish(tester, c);
     });
 

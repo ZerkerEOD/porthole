@@ -7,9 +7,9 @@ import '../main.dart';
 import '../models.dart';
 import '../widgets/composer.dart';
 import '../widgets/event_tile.dart';
-import '../widgets/question_card.dart';
 import '../widgets/terminal.dart';
 import 'new_session.dart';
+import 'question_flow.dart';
 
 /// A key or text send that failed; the message is fit for a SnackBar.
 class _SendError implements Exception {
@@ -46,8 +46,8 @@ class _SessionScreenState extends State<SessionScreen> {
   /// The spawn placeholder's pane and tmux session, kept so the real
   /// session can be matched even after the placeholder is removed.
   String? _pendingPane, _pendingTmux;
-  /// The question set answered from here, so its card stays hidden until
-  /// the transcript catches up.
+  /// The question set answered from here, so its strip stays hidden until
+  /// the daemon catches up.
   String? _answeredId;
 
   Session? get _session => widget.client.sessions[_key];
@@ -121,6 +121,7 @@ class _SessionScreenState extends State<SessionScreen> {
   void _switchTo(String key) {
     if (key == _key || !mounted) return;
     final old = _key;
+    widget.client.moveComposerDraft(old, key);
     setState(() {
       _key = key;
       _pendingPane = null;
@@ -239,6 +240,7 @@ class _SessionScreenState extends State<SessionScreen> {
     });
     if (on) {
       _subscribePane();
+      if (_draftFor(_pendingQuestion()) != null) _toast('Draft answers are kept until you submit. The terminal shows the live dialog.');
     } else {
       widget.client.unsubscribePane(_key);
     }
@@ -283,42 +285,22 @@ class _SessionScreenState extends State<SessionScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<String?> _answer(String id, List<QuestionAnswer> answers) async {
-    try {
-      await _guard(widget.client.answerQuestion(_key, id, answers));
-    } on _SendError catch (e) {
-      return e.message;
-    }
-    if (mounted) setState(() => _answeredId = id);
-    return null;
+  /// The question the session is waiting on, as the daemon records it.
+  /// Only the daemon's id is accepted by `question.answer`, so the transcript
+  /// is not consulted here (its tile still shows the answer once it lands).
+  PendingQuestion? _pendingQuestion() {
+    final q = _session?.question;
+    return q != null && q.id != _answeredId && q.questions.isNotEmpty ? q : null;
   }
 
-  /// The question the session is waiting on: the daemon's record first, else
-  /// the newest question tool use that has no result yet (nothing may have
-  /// happened in the transcript since it).
-  PendingQuestion? _pendingQuestion() {
-    final s = _session;
-    if (s == null) return null;
-    final q = s.question;
-    if (q != null && q.id != _answeredId) return q;
-    if (!s.running) return null;
-    for (var i = _events.length - 1; i >= 0; i--) {
-      final e = _events[i];
-      switch (e.type) {
-        case 'tool.use':
-          final t = e.tool;
-          if (t == null || !t.isQuestion || _results.containsKey(t.id) || t.id == _answeredId) return null;
-          final pq = PendingQuestion.fromToolUse(t);
-          return pq.questions.isEmpty ? null : pq;
-        case 'user':
-        case 'assistant.text':
-        case 'tool.result':
-        case 'system':
-        case 'compact':
-          return null;
-      }
-    }
-    return null;
+  QuestionDraft? _draftFor(PendingQuestion? q) => q == null ? null : widget.client.questionDraft(_key, q);
+
+  Future<void> _openQuestion(PendingQuestion q) async {
+    final r = await Navigator.of(context).push<QuestionFlowResult>(MaterialPageRoute(builder: (_) => QuestionFlowScreen(client: widget.client, sessionKey: _key, question: q)));
+    if (!mounted) return;
+    setState(() {
+      if (r == QuestionFlowResult.answered) _answeredId = q.id;
+    });
   }
 
   @override
@@ -340,6 +322,9 @@ class _SessionScreenState extends State<SessionScreen> {
     final controllable = s?.controllable ?? false;
     final perms = widget.client.permissions.values.where((p) => p.sessionKey == _key).toList();
     final question = _pendingQuestion();
+    final client = widget.client;
+    final machine = client.info.displayName;
+    final route = client.routeNote;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -382,15 +367,32 @@ class _SessionScreenState extends State<SessionScreen> {
         ],
       ),
       body: Column(children: [
+        if (client.state != ConnState.connected)
+          MaterialBanner(
+            leading: const Icon(Icons.vpn_lock),
+            content: Text(client.lastError ?? 'Connection to $machine lost. Reconnecting…'),
+            actions: [TextButton(onPressed: () => client.connect(manual: true), child: const Text('Retry'))],
+          )
+        else if (route.isNotEmpty)
+          Material(
+            color: cs.surfaceContainerHigh,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(children: [
+                Icon(Icons.alt_route, size: 16, color: cs.onSurfaceVariant),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Connected ${route.startsWith('via') ? '' : 'to $machine · '}$route', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
+              ]),
+            ),
+          ),
         for (final p in perms) _PermissionCard(client: widget.client, req: p),
         if (question != null)
-          QuestionCard(
+          _QuestionStrip(
             key: ValueKey('question-$_key-${question.id}'),
-            question: question,
-            onSubmit: (a) => _answer(question.id, a),
-            onOpenTerminal: () {
-              if (!_terminal) _toggleTerminal();
-            },
+            count: question.questions.length,
+            provider: s?.provider ?? 'claude',
+            hasDraft: _draftFor(question) != null,
+            onAnswer: () => _openQuestion(question),
           ),
         if (question == null && s != null && s.running && s.status == 'waiting_input')
           Material(
@@ -415,16 +417,22 @@ class _SessionScreenState extends State<SessionScreen> {
           Composer(
             key: ValueKey('composer-$_key'),
             enabled: controllable,
+            online: client.online,
             skills: _skills,
             hint: s?.status == 'waiting_input' ? 'The session is waiting for you' : 'Message ${s?.provider == 'codex' ? 'Codex' : 'Claude'}',
+            initialText: client.composerDrafts[_key] ?? '',
+            onChanged: (t) => client.setComposerDraft(_key, t),
             onSend: (t) => _sendText(t, enter: true),
           ),
         if (_terminal)
           Composer(
             key: ValueKey('tcomposer-$_key'),
             enabled: controllable,
+            online: client.online,
             skills: _skills,
             hint: 'Type into the terminal',
+            initialText: client.composerDrafts[_key] ?? '',
+            onChanged: (t) => client.setComposerDraft(_key, t),
             onSend: (t) => _sendText(t, enter: true),
           ),
       ]),
@@ -464,6 +472,34 @@ class _SessionScreenState extends State<SessionScreen> {
         final e = _events[i - 1];
         return EventTile(event: e, result: e.tool != null ? _results[e.tool!.id] : null, showThinking: _showThinking);
       },
+    );
+  }
+}
+
+/// One line for a question the session is waiting on, in both views; the
+/// answers are collected in [QuestionFlowScreen].
+class _QuestionStrip extends StatelessWidget {
+  const _QuestionStrip({super.key, required this.count, required this.provider, required this.hasDraft, required this.onAnswer});
+  final int count;
+  final String provider;
+  final bool hasDraft;
+  final VoidCallback onAnswer;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final who = provider == 'codex' ? 'Codex' : 'Claude';
+    return Material(
+      color: cs.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+        child: Row(children: [
+          Icon(Icons.help_outline, size: 18, color: cs.onPrimaryContainer),
+          const SizedBox(width: 8),
+          Expanded(child: Text(count == 1 ? '$who is asking a question' : '$who is asking $count questions', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onPrimaryContainer, fontWeight: FontWeight.w500))),
+          FilledButton(onPressed: onAnswer, child: Text(hasDraft ? 'Answer (draft saved)' : 'Answer')),
+        ]),
+      ),
     );
   }
 }

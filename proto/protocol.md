@@ -67,7 +67,7 @@ that source out for a minute.
 `status` ∈ `unknown idle busy waiting_permission waiting_input exited`. `key` is `<provider>:<session id>`.
 
 `question` is present while a Claude Code `AskUserQuestion` dialog is open and `status` is then `waiting_input`:
-`{id, questions:[{question, header, multiSelect, options:[{label, description}]}]}`. `questions` is the tool input as the CLI reported it; `id` is opaque and is echoed in `question.answer`. The field disappears once the dialog is answered or dismissed. A push notice of kind `input` is sent for it.
+`{id, questions:[{question, header, multiSelect, options:[{label, description, preview?}]}]}`. `questions` is the tool input as the CLI reported it (`preview` is the optional code or layout sample attached to an option); `id` is opaque and is echoed in `question.answer`. The field disappears once the dialog is answered or dismissed. A push notice of kind `input` is sent for it.
 
 **Answer** `{index?, indices?:[int], text?}`: `index` picks one option of a single-select question, `indices` the options of a multi-select one, `text` fills the free-text row (alone for a single select; with or without `indices` for a multi select). Indices are zero-based positions in `options`.
 

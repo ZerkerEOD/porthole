@@ -67,3 +67,18 @@ func TestTranscriptAllowed(t *testing.T) {
 		}
 	}
 }
+
+func TestQuestionItemsKeepPreview(t *testing.T) {
+	items := questionItems(map[string]any{
+		"questions": []any{map[string]any{
+			"question": "Layout?", "header": "Layout", "multiSelect": false,
+			"options": []any{map[string]any{"label": "Grid", "description": "Two columns", "preview": "+--+--+\n|  |  |"}},
+		}},
+	})
+	if len(items) != 1 || len(items[0].Options) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	if got := items[0].Options[0].Preview; got != "+--+--+\n|  |  |" {
+		t.Fatalf("preview = %q", got)
+	}
+}
