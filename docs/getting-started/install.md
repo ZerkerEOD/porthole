@@ -29,7 +29,9 @@ porthole install
 ## What `porthole install` does
 
 1. Copies the running binary to `~/.local/bin/porthole` if it is not already there.
-2. Sets up a user service so the daemon starts at login and restarts if it crashes:
+2. Sets up a user service so the daemon starts at login and restarts if it crashes.
+   Sessions started from the app run in tmux outside the service, so restarting or
+   upgrading the daemon leaves them running:
     - Linux: writes `~/.config/systemd/user/porthole.service`, runs
       `systemctl --user daemon-reload` and `systemctl --user enable --now porthole`,
       then tries `loginctl enable-linger` so the service also runs while you are

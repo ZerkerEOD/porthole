@@ -25,6 +25,9 @@ After=network-online.target
 ExecStart=%h/.local/bin/porthole serve
 Restart=on-failure
 RestartSec=3
+# Sessions the daemon starts live in tmux; stopping or restarting the daemon
+# must not take them down with it.
+KillMode=process
 # The daemon must see your login environment (PATH with claude/codex/tmux).
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 
@@ -42,6 +45,7 @@ const Plist = `<?xml version="1.0" encoding="UTF-8"?>
   <array><string>BIN</string><string>serve</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>AbandonProcessGroup</key><true/>
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
   <key>StandardOutPath</key><string>HOME/Library/Logs/porthole.log</string>

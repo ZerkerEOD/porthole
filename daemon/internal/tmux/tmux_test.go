@@ -120,3 +120,20 @@ func TestSpawnSendCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSpawnWrapper(t *testing.T) {
+	if w := spawnWrapper(true, true, true, 1); w != nil {
+		t.Fatalf("server running: want no wrapper, got %v", w)
+	}
+	if w := spawnWrapper(false, false, true, 1); w != nil {
+		t.Fatalf("no systemd-run: want no wrapper, got %v", w)
+	}
+	if w := spawnWrapper(false, true, false, 1); w != nil {
+		t.Fatalf("outside a service: want no wrapper, got %v", w)
+	}
+	w := spawnWrapper(false, true, true, 42)
+	want := []string{"systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", "porthole-tmux-42", "--"}
+	if strings.Join(w, " ") != strings.Join(want, " ") {
+		t.Fatalf("wrapper = %v", w)
+	}
+}

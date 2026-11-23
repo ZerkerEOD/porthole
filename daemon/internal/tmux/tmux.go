@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -274,7 +275,16 @@ func (c *Client) NewSession(ctx context.Context, name, dir string, argv []string
 	}
 	args = append(args, "--")
 	args = append(args, argv...)
-	out, err := c.run(ctx, args...)
+	var out string
+	var err error
+	if w := spawnWrapper(c.serverRunning(ctx), haveSystemdRun(), inSystemdService(), time.Now().UnixNano()); w != nil {
+		// The first session starts the tmux server; a transient scope keeps
+		// it (and every agent it hosts) out of the daemon's cgroup, so a
+		// service restart does not kill the sessions.
+		out, err = c.runWith(ctx, w, args...)
+	} else {
+		out, err = c.run(ctx, args...)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -285,6 +295,54 @@ func (c *Client) NewSession(ctx context.Context, name, dir string, argv []string
 	// Keep the window open after the program exits so the user can read the end.
 	_, _ = c.run(ctx, "set-option", "-t", name, "remain-on-exit", "on")
 	return id, nil
+}
+
+// serverRunning reports whether a tmux server answers.
+func (c *Client) serverRunning(ctx context.Context) bool {
+	_, err := c.run(ctx, "list-sessions")
+	return err == nil || !isNoServer(err)
+}
+
+func isNoServer(err error) bool {
+	return err != nil && (strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "error connecting"))
+}
+
+func haveSystemdRun() bool {
+	_, err := exec.LookPath("systemd-run")
+	return err == nil
+}
+
+// inSystemdService is true when the daemon runs as a systemd unit.
+func inSystemdService() bool { return os.Getenv("INVOCATION_ID") != "" }
+
+// spawnWrapper returns the command prefix that starts the tmux server in its
+// own transient scope, or nil when the server already runs, systemd-run is
+// missing, or the daemon is not a systemd service.
+func spawnWrapper(serverRunning, haveSystemdRun, inService bool, now int64) []string {
+	if serverRunning || !haveSystemdRun || !inService {
+		return nil
+	}
+	return []string{"systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", fmt.Sprintf("porthole-tmux-%d", now), "--"}
+}
+
+// runWith runs tmux through a wrapper command (the wrapper gets the tmux
+// binary and its arguments appended).
+func (c *Client) runWith(ctx context.Context, wrapper []string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	full := append(append(append([]string{}, wrapper[1:]...), c.bin()), c.extraArgs...)
+	full = append(full, args...)
+	cmd := exec.CommandContext(ctx, wrapper[0], full...)
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(errb.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return out.String(), fmt.Errorf("tmux %s: %s", args[0], msg)
+	}
+	return out.String(), nil
 }
 
 // KillSession kills a session the daemon created.

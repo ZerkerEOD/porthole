@@ -8,6 +8,9 @@ After=network-online.target
 ExecStart=%h/.local/bin/porthole serve
 Restart=on-failure
 RestartSec=3
+# Sessions the daemon starts live in tmux; stopping or restarting the daemon
+# must not take them down with it.
+KillMode=process
 # The daemon must see your login environment (PATH with claude/codex/tmux).
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 
