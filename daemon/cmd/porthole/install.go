@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/ZerkerEOD/porthole/daemon/internal/config"
 	"github.com/ZerkerEOD/porthole/daemon/internal/install"
+	"github.com/ZerkerEOD/porthole/daemon/internal/server"
 )
 
 func installCmd() *cobra.Command {
@@ -36,6 +39,7 @@ func installCmd() *cobra.Command {
 				for _, n := range notes {
 					fmt.Println("service:", n)
 				}
+				waitForDaemon(cmd.Context(), 5*time.Second)
 			}
 			fmt.Println()
 			if err := doctor(cmd.Context()); err != nil {
@@ -66,4 +70,17 @@ func installCmd() *cobra.Command {
 	c.Flags().BoolVar(&noService, "no-service", false, "do not register a user service")
 	c.Flags().BoolVar(&noHooks, "no-hooks", false, "do not install the Claude Code / Codex hooks")
 	return c
+}
+
+// waitForDaemon gives a freshly started service time to bind its addresses so
+// the checks that follow describe the running state, not the start-up gap.
+func waitForDaemon(ctx context.Context, max time.Duration) {
+	deadline := time.Now().Add(max)
+	for time.Now().Before(deadline) {
+		var st server.Status
+		if err := server.NewLocalClient().Call(ctx, "GET", "/status", nil, &st, time.Second); err == nil && len(st.Bound) > 0 {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
