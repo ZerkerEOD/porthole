@@ -102,6 +102,7 @@ class Session {
         updatedAt = DateTime.tryParse(j['updated_at'] as String? ?? ''),
         spawned = j['spawned'] as bool? ?? false,
         pending = j['pending'] as bool? ?? false,
+        question = j['question'] is Map ? PendingQuestion.fromJson((j['question'] as Map).cast<String, dynamic>()) : null,
         stale = j['_stale'] as bool? ?? false;
 
   final String key, id, provider, title, cwd, repo, branch, status, model, account, lastPrompt;
@@ -111,6 +112,8 @@ class Session {
   final bool stale;
   final String? paneId, tmuxSession;
   final DateTime? startedAt, updatedAt;
+  /// Set while the session is waiting on a multiple-choice question.
+  final PendingQuestion? question;
 
   /// Trimmed form persisted in the last-seen cache.
   Map<String, dynamic> toCacheJson() => {
@@ -142,7 +145,65 @@ class ToolUse {
         input = j['input'];
   final String id, name;
   final dynamic input;
+
+  /// The tool that asks the user to pick from options.
+  static const questionTool = 'AskUserQuestion';
+  bool get isQuestion => name == questionTool;
 }
+
+class QuestionOption {
+  const QuestionOption({required this.label, this.description = ''});
+  QuestionOption.fromJson(Map<String, dynamic> j)
+      : label = j['label'] as String? ?? '',
+        description = j['description'] as String? ?? '';
+  final String label, description;
+}
+
+/// One question inside a pending question set.
+class QuestionSpec {
+  const QuestionSpec({required this.question, this.header = '', this.multiSelect = false, this.options = const []});
+  QuestionSpec.fromJson(Map<String, dynamic> j)
+      : question = j['question'] as String? ?? '',
+        header = j['header'] as String? ?? '',
+        multiSelect = j['multiSelect'] as bool? ?? false,
+        options = [for (final o in (j['options'] as List? ?? [])) if (o is Map) QuestionOption.fromJson(o.cast<String, dynamic>())];
+  final String question, header;
+  final bool multiSelect;
+  final List<QuestionOption> options;
+}
+
+/// A question set the session is waiting on, from `Session.question` or
+/// from an unanswered question tool use in the transcript.
+class PendingQuestion {
+  const PendingQuestion({required this.id, required this.questions});
+  PendingQuestion.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String? ?? '',
+        questions = _specs(j['questions']);
+  PendingQuestion.fromToolUse(ToolUse t)
+      : id = t.id,
+        questions = _specs(t.input is Map ? (t.input as Map)['questions'] : null);
+  final String id;
+  final List<QuestionSpec> questions;
+
+  static List<QuestionSpec> _specs(dynamic raw) => [for (final q in (raw as List? ?? [])) if (q is Map) QuestionSpec.fromJson(q.cast<String, dynamic>())];
+}
+
+/// One answer per question, in order: `index` for a single choice,
+/// `indices` for a multi-select, `text` for a typed answer.
+class QuestionAnswer {
+  const QuestionAnswer({this.index, this.indices, this.text});
+  final int? index;
+  final List<int>? indices;
+  final String? text;
+
+  Map<String, dynamic> toJson() => {'index': ?index, 'indices': ?indices, 'text': ?text};
+}
+
+final _answerPair = RegExp(r'"((?:[^"\\]|\\.)*)"="((?:[^"\\]|\\.)*)"');
+
+/// Parses a question tool result (`Your questions have been answered:
+/// "question"="answer", …`) into (question, answer) pairs.
+List<(String, String)> parseQuestionAnswers(String text) => [for (final m in _answerPair.allMatches(text)) (m.group(1)!, m.group(2)!)];
 
 class Event {
   Event.fromJson(Map<String, dynamic> j)

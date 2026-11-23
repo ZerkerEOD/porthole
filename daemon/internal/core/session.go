@@ -39,11 +39,41 @@ type Session struct {
 	// Pending is set on a placeholder created by Spawn before the CLI has
 	// written its transcript; the key is then "<provider>:pending:<pane>".
 	Pending bool `json:"pending,omitempty"`
+	// Question is set while the CLI shows an AskUserQuestion dialog (reported
+	// by the PermissionRequest hook) that has not been answered yet.
+	Question *Question `json:"question,omitempty"`
+}
+
+// Question is a pending AskUserQuestion call: the tool input as written to
+// the transcript plus the tool use id, which question.answer echoes back.
+type Question struct {
+	ID        string         `json:"id"`
+	Questions []QuestionItem `json:"questions"`
+	// SetAt is when the hook reported the dialog; the transcript is silent
+	// while it is open, so any later write means it closed.
+	SetAt time.Time `json:"-"`
+}
+
+// QuestionItem is one question of the dialog.
+type QuestionItem struct {
+	Question    string           `json:"question"`
+	Header      string           `json:"header"`
+	MultiSelect bool             `json:"multiSelect"`
+	Options     []QuestionOption `json:"options"`
+}
+
+// QuestionOption is one choice of a question.
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
 }
 
 // Listener receives registry changes. Implementations must not block.
 type Listener interface {
 	SessionUpserted(s Session)
+	// SessionReplaced precedes SessionRemoved(oldKey) when a spawn
+	// placeholder turns into a real session.
+	SessionReplaced(oldKey, newKey string)
 	SessionRemoved(key string)
 	Events(key string, evs []transcript.Event)
 	Pane(key string, screen *tmux.Screen)

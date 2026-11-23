@@ -44,6 +44,11 @@ type (
 		ID       string `json:"id"`
 		Behavior string `json:"behavior"` // allow|deny
 	}
+	QuestionAnswerReq struct {
+		Key     string        `json:"key"`
+		ID      string        `json:"id"`
+		Answers []core.Answer `json:"answers"`
+	}
 	HistoryReq = SubscribeReq
 )
 
@@ -81,5 +86,9 @@ type (
 	PermissionResolvedMsg struct {
 		ID       string `json:"id"`
 		Behavior string `json:"behavior"`
+	}
+	ReplacedMsg struct {
+		Old string `json:"old"`
+		New string `json:"new"`
 	}
 )

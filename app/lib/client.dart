@@ -335,6 +335,9 @@ class DaemonClient extends ChangeNotifier {
   /// a loud state that retrying cannot fix.
   bool needsRepair = false;
   DateTime? lastSeen;
+  /// When the last frame arrived on the current socket; a connection that
+  /// has gone quiet is dialed again on wake.
+  DateTime? lastFrameAt;
   int _failures = 0;
   String daemonName = '';
   String daemonVersion = '';
@@ -348,8 +351,19 @@ class DaemonClient extends ChangeNotifier {
   /// Per-session event streams and pane streams.
   final _eventCtl = StreamController<(String, List<Event>)>.broadcast();
   final _paneCtl = StreamController<(String, ScreenSnapshot)>.broadcast();
+  /// `(old, new)` when a spawn placeholder becomes a real session.
+  final _replacedCtl = StreamController<(String, String)>.broadcast();
   Stream<(String, List<Event>)> get events => _eventCtl.stream;
   Stream<(String, ScreenSnapshot)> get panes => _paneCtl.stream;
+  Stream<(String, String)> get replaced => _replacedCtl.stream;
+
+  /// Live subscriptions; the daemon drops them when the socket closes, so
+  /// they are issued again after every hello.
+  final Set<String> _eventKeys = {}, _paneKeys = {};
+  Map<String, dynamic>? _pushRegistration;
+  Set<String> get subscribedKeys => Set.unmodifiable(_eventKeys);
+  Set<String> get subscribedPanes => Set.unmodifiable(_paneKeys);
+  bool hasPaneSubscription(String key) => _paneKeys.contains(key);
 
   WebSocket? _ws;
   int _nextId = 1;
@@ -407,6 +421,7 @@ class DaemonClient extends ChangeNotifier {
         ws.close();
         return;
       }
+      ws.pingInterval = const Duration(seconds: 20);
       _ws = ws;
       info.lastHost = host;
       state = ConnState.connected;
@@ -415,6 +430,7 @@ class DaemonClient extends ChangeNotifier {
       _backoff = 1;
       _failures = 0;
       lastSeen = DateTime.now();
+      lastFrameAt = lastSeen;
       notifyListeners();
       ws.listen(_onMessage, onDone: () => _onClosed(ws), onError: (Object e) {
         lastError = '$host: ${describeHostError(e, host: host).text}';
@@ -538,6 +554,7 @@ class DaemonClient extends ChangeNotifier {
   void handleFrame(Map<String, dynamic> m) {
     final type = m['type'] as String;
     final payload = m['payload'];
+    lastFrameAt = DateTime.now();
     switch (type) {
       case 'hello':
         final p = payload as Map<String, dynamic>;
@@ -563,14 +580,27 @@ class DaemonClient extends ChangeNotifier {
         lastSeen = DateTime.now();
         notifyListeners();
         _snapshot();
+        _resubscribe();
       case 'session.upsert':
         final s = Session.fromJson(payload as Map<String, dynamic>);
         sessions[s.key] = s;
         notifyListeners();
         _snapshotSoon();
       case 'session.removed':
-        sessions.remove((payload as Map<String, dynamic>)['key']);
+        final key = (payload as Map<String, dynamic>)['key'];
+        sessions.remove(key);
+        _eventKeys.remove(key);
+        _paneKeys.remove(key);
         notifyListeners();
+      case 'session.replaced':
+        final p = payload as Map<String, dynamic>;
+        final old = p['old'] as String?;
+        final fresh = p['new'] as String?;
+        if (old != null && fresh != null) {
+          _eventKeys.remove(old);
+          _paneKeys.remove(old);
+          _replacedCtl.add((old, fresh));
+        }
       case 'event':
         final p = payload as Map<String, dynamic>;
         _eventCtl.add((p['key'] as String, (p['events'] as List).map((e) => Event.fromJson(e as Map<String, dynamic>)).toList()));
@@ -595,13 +625,41 @@ class DaemonClient extends ChangeNotifier {
           if (r['ok'] == true) {
             c.complete(r);
           } else {
-            c.completeError(StateError(r['error'] as String? ?? 'error'));
+            c.completeError(StateError(r['error'] as String? ?? r['reason'] as String? ?? 'error'));
           }
         }
     }
   }
 
+  /// Re-issues the transcript and pane subscriptions (and the push grant)
+  /// the daemon forgot when the previous socket closed. History that
+  /// arrived meanwhile is replayed on [events]; listeners drop what they
+  /// already have by seq.
+  void _resubscribe() {
+    for (final key in List.of(_eventKeys)) {
+      unawaited(() async {
+        try {
+          final (evs, _) = await subscribe(key, limit: 150);
+          if (evs.isNotEmpty && !_closed) _eventCtl.add((key, evs));
+        } catch (_) {}
+      }());
+    }
+    for (final key in List.of(_paneKeys)) {
+      unawaited(() async {
+        try {
+          final scr = await subscribePane(key);
+          if (scr != null && !_closed) _paneCtl.add((key, scr));
+        } catch (_) {}
+      }());
+    }
+    final reg = _pushRegistration;
+    if (reg != null) request('push.register', reg).catchError((_) => <String, dynamic>{});
+  }
+
   Future<Map<String, dynamic>> request(String type, [Map<String, dynamic>? payload]) {
+    // Remembered even when offline so the next hello carries it.
+    if (type == 'push.register') _pushRegistration = payload;
+    if (type == 'push.unregister') _pushRegistration = null;
     final ws = _ws;
     if (ws == null) return Future.error(StateError('Not connected'));
     final id = '${_nextId++}';
@@ -615,8 +673,14 @@ class DaemonClient extends ChangeNotifier {
   }
 
   Future<(List<Event>, bool)> subscribe(String key, {int before = 0, int limit = 200}) async {
-    final r = await request('session.subscribe', {'key': key, 'before': before, 'limit': limit});
-    return _history(r);
+    _eventKeys.add(key);
+    try {
+      final r = await request('session.subscribe', {'key': key, 'before': before, 'limit': limit});
+      return _history(r);
+    } catch (_) {
+      _eventKeys.remove(key);
+      rethrow;
+    }
   }
 
   Future<(List<Event>, bool)> history(String key, {int before = 0, int limit = 200}) async {
@@ -630,18 +694,40 @@ class DaemonClient extends ChangeNotifier {
     return (evs, d['has_more'] == true);
   }
 
-  Future<void> unsubscribe(String key) => request('session.unsubscribe', {'key': key}).catchError((_) => <String, dynamic>{});
+  Future<void> unsubscribe(String key) {
+    _eventKeys.remove(key);
+    return request('session.unsubscribe', {'key': key}).catchError((_) => <String, dynamic>{});
+  }
+
   Future<void> sendText(String key, String text, {bool enter = true}) => request('session.input', {'key': key, 'text': text, 'enter': enter});
   Future<void> sendKeys(String key, List<String> keys) => request('session.keys', {'key': key, 'keys': keys});
   Future<void> answerPermission(String id, String behavior) => request('permission.answer', {'id': id, 'behavior': behavior});
 
-  Future<ScreenSnapshot?> subscribePane(String key) async {
-    final r = await request('pane.subscribe', {'key': key});
-    final d = r['data'] as Map<String, dynamic>?;
-    return d?['screen'] != null ? ScreenSnapshot.fromJson(d!['screen'] as Map<String, dynamic>) : null;
+  /// Answers a pending question set. The daemon acknowledges the request
+  /// and reports in `data` whether the answer landed; a refusal surfaces as
+  /// a [StateError] carrying its reason.
+  Future<void> answerQuestion(String key, String id, List<QuestionAnswer> answers) async {
+    final r = await request('question.answer', {'key': key, 'id': id, 'answers': [for (final a in answers) a.toJson()]});
+    final d = r['data'];
+    if (d is Map && d['ok'] == false) throw StateError(d['reason'] as String? ?? 'The question could not be answered');
   }
 
-  Future<void> unsubscribePane(String key) => request('pane.unsubscribe', {'key': key}).catchError((_) => <String, dynamic>{});
+  Future<ScreenSnapshot?> subscribePane(String key) async {
+    _paneKeys.add(key);
+    try {
+      final r = await request('pane.subscribe', {'key': key});
+      final d = r['data'] as Map<String, dynamic>?;
+      return d?['screen'] != null ? ScreenSnapshot.fromJson(d!['screen'] as Map<String, dynamic>) : null;
+    } catch (_) {
+      _paneKeys.remove(key);
+      rethrow;
+    }
+  }
+
+  Future<void> unsubscribePane(String key) {
+    _paneKeys.remove(key);
+    return request('pane.unsubscribe', {'key': key}).catchError((_) => <String, dynamic>{});
+  }
   Future<void> resizePane(String key, int cols, int rows) => request('pane.resize', {'key': key, 'cols': cols, 'rows': rows}).catchError((_) => <String, dynamic>{});
 
   Future<List<Skill>> skills(String provider, String repo) async {
@@ -718,5 +804,6 @@ class DaemonClient extends ChangeNotifier {
     _ws?.close();
     _eventCtl.close();
     _paneCtl.close();
+    _replacedCtl.close();
   }
 }

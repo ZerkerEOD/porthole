@@ -29,6 +29,7 @@ that source out for a minute.
 |---|---|
 | `hello` | `{name, version, protocol, device, hosts?:[string], sessions:[Session], accounts, permissions:[PermissionRequest], features:{claude,codex,push,tmux}}` sent once after connect. `hosts` is optional: the daemon's current advertised addresses, VPN first, in the same form as the pairing payload, so the app can refresh the addresses it stored at pairing |
 | `session.upsert` | `Session` |
+| `session.replaced` | `{old, new}` when a spawn placeholder (`<provider>:pending:<pane>`) becomes a real session: sent after the real session's `session.upsert` and before the placeholder's `session.removed` |
 | `session.removed` | `{key}` |
 | `event` | `{key, events:[Event]}` for subscribed sessions |
 | `pane.snapshot` | `{key, screen:{lines:[ansi strings], cursor_x, cursor_y, width, height, in_mode}}` for pane subscriptions; coalesced so only the latest is delivered |
@@ -52,6 +53,7 @@ that source out for a minute.
 | `pane.unsubscribe` | `{key}` | |
 | `pane.resize` | `{key, cols, rows}` | | only for sessions Porthole spawned |
 | `permission.answer` | `{id, behavior: allow\|deny}` | |
+| `question.answer` | `{key, id, answers:[Answer]}` | `{ok, reason?}` | answers the session's pending `question` (same `id`) by driving the dialog in the tmux pane; one `Answer` per question, in order. `ok:false` with a `reason` when the dialog is not on screen, the answers do not fit the questions, or the screen ended up in a state the daemon does not recognize (`reason` then carries the last pane lines) |
 | `repos.list` | `{}` | `[Repo]` |
 | `skills.list` | `{provider?, repo?}` | `[Skill]` |
 | `accounts.get` | `{}` | `AccountsSnapshot` |
@@ -60,9 +62,14 @@ that source out for a minute.
 
 ## Types
 
-**Session** `{key, id, provider: claude|codex, title, cwd, repo, branch, profile, status, running, controllable, pane_id?, tmux_session?, pid?, kind?, model?, account?, last_prompt?, started_at, updated_at, size?, spawned?, pending?}`
+**Session** `{key, id, provider: claude|codex, title, cwd, repo, branch, profile, status, running, controllable, pane_id?, tmux_session?, pid?, kind?, model?, account?, last_prompt?, started_at, updated_at, size?, spawned?, pending?, question?}`
 
 `status` ∈ `unknown idle busy waiting_permission waiting_input exited`. `key` is `<provider>:<session id>`.
+
+`question` is present while a Claude Code `AskUserQuestion` dialog is open and `status` is then `waiting_input`:
+`{id, questions:[{question, header, multiSelect, options:[{label, description}]}]}`. `questions` is the tool input as the CLI reported it; `id` is opaque and is echoed in `question.answer`. The field disappears once the dialog is answered or dismissed. A push notice of kind `input` is sent for it.
+
+**Answer** `{index?, indices?:[int], text?}`: `index` picks one option of a single-select question, `indices` the options of a multi-select one, `text` fills the free-text row (alone for a single select; with or without `indices` for a multi select). Indices are zero-based positions in `options`.
 
 **Event** `{seq, type, ts, id?, parent_id?, message_id?, turn_id?, sidechain?, agent_id?, text?, truncated?, tool?:{id,name,input}, result?:{tool_use_id,is_error}, status?, usage?, model?, level?, meta?}`
 

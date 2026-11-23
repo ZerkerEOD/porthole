@@ -61,13 +61,13 @@ func TestSendShape(t *testing.T) {
 	priv, _, _ := Keypair()
 	key, _ := DeriveKey(priv, pub)
 	n := Notification{Kind: "permission", SessionKey: "claude:x", Title: strings.Repeat("t", 200), Daemon: "desk", At: 1}
-	if err := c.Send(context.Background(), "g1", key, n, "claude:x"); err != nil {
-		t.Fatal(err)
+	if status, err := c.Send(context.Background(), "g1", key, n, "claude:x"); err != nil || status != 202 {
+		t.Fatal(status, err)
 	}
 	if got["grant"] != "g1" || got["ct"] == "" || got["collapse"] != "claude:x" {
 		t.Fatalf("body: %v", got)
 	}
-	if err := c.Send(context.Background(), "bad", key, n, ""); err == nil {
+	if _, err := c.Send(context.Background(), "bad", key, n, ""); err == nil {
 		t.Fatal("expected rejection")
 	}
 	if _, err := NewClient("http://insecure"); err == nil {

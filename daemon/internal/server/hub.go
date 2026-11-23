@@ -86,12 +86,15 @@ func (h *hub) Notify(kind, sessionKey, title string) {
 		go func(d Device) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			if err := h.push.Send(ctx, d.PushGrant, key, n, collapse); err != nil {
-				h.log.Warn("push failed", "device", d.ID, "err", err)
+			status, err := h.push.Send(ctx, d.PushGrant, key, n, collapse)
+			if err != nil {
+				h.log.Warn("push failed", "device", d.ID, "kind", kind, "status", status, "err", err)
 				if errors.Is(err, push.ErrRejected) {
 					_ = h.store.SetPushGrant(d.ID, "", time.Time{})
 				}
+				return
 			}
+			h.log.Info("push sent", "device", d.ID, "kind", kind, "status", status)
 		}(d)
 	}
 }
@@ -167,6 +170,9 @@ func (h *hub) closeDevice(id string) {
 
 func (h *hub) SessionUpserted(s core.Session) {
 	h.each(func(c *conn) { c.push("session.upsert", s) })
+}
+func (h *hub) SessionReplaced(oldKey, newKey string) {
+	h.each(func(c *conn) { c.push("session.replaced", ReplacedMsg{Old: oldKey, New: newKey}) })
 }
 func (h *hub) SessionRemoved(key string) {
 	h.each(func(c *conn) { c.push("session.removed", KeyReq{Key: key}) })
@@ -451,6 +457,22 @@ func (c *conn) handle(ctx context.Context, m Message) {
 			return
 		}
 		c.reply(m.ID, true, "", nil)
+	case "question.answer":
+		var r QuestionAnswerReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" || r.ID == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		c.log.Info("question answer", "session", r.Key, "id", r.ID)
+		res, err := reg.AnswerQuestion(ctx, r.Key, r.ID, r.Answers)
+		if err != nil {
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		if !res.OK {
+			c.log.Warn("question answer failed", "session", r.Key, "id", r.ID, "reason", res.Reason)
+		}
+		c.reply(m.ID, true, "", res)
 	case "repos.list":
 		c.reply(m.ID, true, "", reg.Repos())
 	case "skills.list":

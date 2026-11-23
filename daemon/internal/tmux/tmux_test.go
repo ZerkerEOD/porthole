@@ -3,10 +3,36 @@ package tmux
 import (
 	"context"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestKeyCommands(t *testing.T) {
+	got, err := keyCommands("%3", []string{"C-u", "x", "y", "Enter", "Down", "-", "Enter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"send-keys", "-t", "%3", "C-u"},
+		{"send-keys", "-t", "%3", "-l", "--", "x", "y"},
+		{"send-keys", "-t", "%3", "Enter", "Down"},
+		{"send-keys", "-t", "%3", "-l", "--", "-"},
+		{"send-keys", "-t", "%3", "Enter"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("argv:\n got %q\nwant %q", got, want)
+	}
+	for _, bad := range [][]string{nil, {"rm -rf /"}, {";"}, {"\x01"}, {"Enter", "ab"}} {
+		if _, err := keyCommands("%3", bad); err == nil {
+			t.Fatalf("keys %q accepted", bad)
+		}
+	}
+	if _, err := keyCommands("3", []string{"Enter"}); err == nil {
+		t.Fatal("bad pane id accepted")
+	}
+}
 
 // These tests drive a private tmux server (-L) so they never touch the
 // user's sessions. They are skipped when tmux is not installed.
@@ -60,9 +86,20 @@ func TestSpawnSendCapture(t *testing.T) {
 	if err := c.SendText(ctx, pane, "a\nb", true); err != nil {
 		t.Fatal(err)
 	}
-	// Keys: allowed and disallowed.
+	// Keys: a literal after a named key must be typed, not "-l".
 	if err := c.SendKeys(ctx, pane, []string{"C-u", "x", "Enter"}); err != nil {
 		t.Fatal(err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		scr, err = c.Capture(ctx, pane, 50)
+		if err == nil && strings.Contains(strings.Join(scr.Lines, "\n"), "got:x") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if scr == nil || !strings.Contains(strings.Join(scr.Lines, "\n"), "got:x") {
+		t.Fatalf("literal key after named key not typed; screen=%v", scr)
 	}
 	if err := c.SendKeys(ctx, pane, []string{"rm -rf /"}); err == nil {
 		t.Fatal("multi-char key accepted")

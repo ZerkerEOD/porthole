@@ -38,6 +38,7 @@ type Registry struct {
 	paneHash  map[string]uint64
 	spawned   map[string]spawnInfo // pane id -> info
 	listeners []Listener
+	attention []func(kind, key, text string)
 
 	perm   *permissionBroker
 	cs     *cswap.Client
@@ -115,6 +116,24 @@ func (r *Registry) AddListener(l Listener) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.listeners = append(r.listeners, l)
+}
+
+// OnAttention registers a callback for attention events the registry raises
+// itself, such as a pending question (kind input).
+func (r *Registry) OnAttention(fn func(kind, key, text string)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.attention = append(r.attention, fn)
+}
+
+func (r *Registry) attend(kind, key, text string) {
+	r.mu.RLock()
+	fns := make([]func(kind, key, text string), len(r.attention))
+	copy(fns, r.attention)
+	r.mu.RUnlock()
+	for _, fn := range fns {
+		fn(kind, key, text)
+	}
 }
 
 func (r *Registry) each(fn func(l Listener)) {
@@ -404,6 +423,7 @@ func (r *Registry) scan(ctx context.Context) {
 	r.mu.RUnlock()
 	for _, s := range gone {
 		s.Running, s.Controllable, s.PaneID, s.PID, s.Status = false, false, "", 0, transcript.StatusExited
+		s.Question = nil
 		r.upsert(s)
 	}
 	for _, k := range pendings {
@@ -427,11 +447,14 @@ func (r *Registry) finishLive(s *Session, path string) {
 			s.Status = prev.Status
 		}
 		s.Spawned = prev.Spawned
+		if q := prev.Question; q != nil && !transcriptTouched(path, q.SetAt) {
+			s.Question, s.Status = q, transcript.StatusWaitingInput
+		}
 	}
+	placeholder := ""
 	if spawnedHere && sp.Provider == s.Provider {
 		s.Spawned = true
-		// Replace the placeholder.
-		r.remove(s.Provider + ":pending:" + s.PaneID)
+		placeholder = s.Provider + ":pending:" + s.PaneID
 		r.mu.Lock()
 		delete(r.spawned, s.PaneID)
 		r.mu.Unlock()
@@ -476,6 +499,20 @@ func (r *Registry) finishLive(s *Session, path string) {
 		}
 	}
 	r.upsert(*s)
+	if placeholder != "" {
+		// The real session is in place; tell clients, then drop the placeholder.
+		r.each(func(l Listener) { l.SessionReplaced(placeholder, s.Key) })
+		r.remove(placeholder)
+	}
+}
+
+// transcriptTouched reports whether the transcript was written after t.
+func transcriptTouched(path string, t time.Time) bool {
+	if path == "" {
+		return false
+	}
+	st, err := os.Stat(path)
+	return err == nil && st.ModTime().After(t)
 }
 
 func (r *Registry) accountFor(prov string, a AccountsSnapshot) string {
@@ -702,12 +739,92 @@ func (r *Registry) pumpAll() {
 					s.Model, changed = ev.Model, true
 				}
 			}
+			if q := s.Question; q != nil && questionClosedBy(fresh, q.SetAt) {
+				s.Question, changed = nil, true
+				if s.Status == transcript.StatusWaitingInput {
+					s.Status = transcript.StatusBusy
+				}
+			}
 			if changed {
 				s.UpdatedAt = time.Now()
 				r.upsert(s)
 			}
 		}
 	}
+}
+
+// questionClosedBy reports whether evs show the transcript moving on after
+// a dialog opened at setAt: the CLI writes nothing while it is open, so a
+// result or a new turn stamped later means it closed.
+func questionClosedBy(evs []transcript.Event, setAt time.Time) bool {
+	for _, ev := range evs {
+		if ev.Sidechain || !ev.TS.After(setAt) {
+			continue
+		}
+		switch ev.Type {
+		case transcript.TypeToolResult, transcript.TypeUser, transcript.TypeText, transcript.TypeThinking, transcript.TypeCompact:
+			return true
+		}
+	}
+	return false
+}
+
+// SetQuestion records a pending AskUserQuestion dialog for a session and
+// raises an input notice. A repeat of the same dialog keeps its id.
+func (r *Registry) SetQuestion(key string, items []QuestionItem) *Question {
+	s, ok := r.Get(key)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	if s.Question != nil && sameQuestions(s.Question.Questions, items) {
+		return s.Question
+	}
+	var rnd [8]byte
+	_, _ = rand.Read(rnd[:])
+	q := &Question{ID: hex.EncodeToString(rnd[:]), Questions: items, SetAt: time.Now()}
+	s.Question, s.Status, s.UpdatedAt = q, transcript.StatusWaitingInput, time.Now()
+	r.upsert(s)
+	r.log.Info("question pending", "session", key, "id", q.ID, "questions", len(items))
+	r.attend("input", key, questionText(q))
+	return q
+}
+
+// ClearQuestion drops the pending question; id "" matches any.
+func (r *Registry) ClearQuestion(key, id string) {
+	s, ok := r.Get(key)
+	if !ok || s.Question == nil || (id != "" && s.Question.ID != id) {
+		return
+	}
+	s.Question, s.UpdatedAt = nil, time.Now()
+	if s.Status == transcript.StatusWaitingInput {
+		s.Status = transcript.StatusBusy
+	}
+	r.upsert(s)
+}
+
+func sameQuestions(a, b []QuestionItem) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Question != b[i].Question || a[i].Header != b[i].Header || a[i].MultiSelect != b[i].MultiSelect || len(a[i].Options) != len(b[i].Options) {
+			return false
+		}
+		for j := range a[i].Options {
+			if a[i].Options[j] != b[i].Options[j] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// questionText is the one-line summary of a pending question for notices.
+func questionText(q *Question) string {
+	if q == nil || len(q.Questions) == 0 {
+		return ""
+	}
+	return firstLine(firstNonEmpty(q.Questions[0].Question, q.Questions[0].Header), 120)
 }
 
 func (r *Registry) gcFollowers() {
@@ -1173,13 +1290,17 @@ func (r *Registry) RefreshAccounts(ctx context.Context) {
 	r.each(func(l Listener) { l.AccountsUpdated(cp) })
 }
 
-// SetStatus overrides a session's status (used by hooks).
+// SetStatus overrides a session's status (used by hooks). A status other
+// than waiting_input means the dialog, if any, is gone.
 func (r *Registry) SetStatus(key, status string) {
 	s, ok := r.Get(key)
 	if !ok {
 		return
 	}
 	s.Status = status
+	if status != transcript.StatusWaitingInput {
+		s.Question = nil
+	}
 	s.UpdatedAt = time.Now()
 	r.upsert(s)
 }

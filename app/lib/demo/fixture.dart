@@ -125,6 +125,7 @@ List<Map<String, dynamic>> sessions([String machine = demoDaemonId]) {
       'status': 'waiting_input',
       'running': true,
       'controllable': true,
+      'question': demoQuestion(),
       'pane_id': '%6',
       'tmux_session': 'ph-claude-2',
       'model': 'claude-sonnet-5',
@@ -230,7 +231,8 @@ List<Map<String, dynamic>> transcript(String key) {
         _ev(2, 'assistant.thinking', const Duration(minutes: 40, seconds: 50), text: 'Settings uses SwitchListTile, ListTile and a handful of TextButtons. Most of these are already Material 3 under useMaterial3; the real work is the segmented control for the theme picker and the two dialogs.'),
         _ev(3, 'tool.use', const Duration(minutes: 40, seconds: 30), tool: {'id': 'tu_s1', 'name': 'Grep', 'input': {'pattern': 'RadioListTile|showDialog', 'path': 'lib/screens/settings.dart'}}),
         _ev(4, 'tool.result', const Duration(minutes: 40, seconds: 28), result: {'tool_use_id': 'tu_s1', 'is_error': false}, text: 'lib/screens/settings.dart:88: RadioListTile<String>(\nlib/screens/settings.dart:96: RadioListTile<String>(\nlib/screens/settings.dart:140: showDialog<bool>('),
-        _ev(5, 'assistant.text', const Duration(minutes: 4), text: 'Two of the three theme radios map cleanly onto a SegmentedButton. The third option, "Follow system", has no equivalent in a two-segment control. Do you want a three-segment button (wider, wraps on small phones) or keep the radios for that one setting?'),
+        _ev(5, 'assistant.text', const Duration(minutes: 4), text: 'Two of the three theme radios map cleanly onto a SegmentedButton. The third option, "Follow system", has no equivalent in a two-segment control.'),
+        _ev(6, 'tool.use', const Duration(minutes: 4), tool: {'id': 'tu_q1', 'name': 'AskUserQuestion', 'input': {'questions': demoQuestion()['questions']}}),
       ];
     case codex1:
       return [
@@ -279,6 +281,24 @@ Map<String, dynamic> permissionRequest() => {
       'cwd': '/home/dev/src/porthole/daemon',
       'created_at': _iso(Duration.zero),
       'expires_at': DateTime.now().add(const Duration(minutes: 5)).toUtc().toIso8601String(),
+    };
+
+/// The question the waiting-input demo session is asking, in the shape the
+/// daemon sends (Session.question and the AskUserQuestion tool input).
+Map<String, dynamic> demoQuestion() => {
+      'id': 'tu_q1',
+      'questions': [
+        {
+          'question': 'The theme picker has three options and SegmentedButton fits two. How should it look?',
+          'header': 'Theme picker',
+          'multiSelect': false,
+          'options': [
+            {'label': 'Three-segment button', 'description': 'Wider control; wraps onto two lines on small phones.'},
+            {'label': 'Keep the radios', 'description': 'Leave this one setting as RadioListTiles.'},
+            {'label': 'Dropdown', 'description': 'A DropdownMenu with the three choices.'},
+          ],
+        },
+      ],
     };
 
 const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

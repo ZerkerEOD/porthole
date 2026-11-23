@@ -108,21 +108,22 @@ func NewClient(relayURL string) (*Client, error) {
 var ErrRejected = errors.New("push: relay rejected the push")
 
 // Send encrypts n with key and posts it under grant. collapse groups
-// notifications for the same session so only the latest is shown.
-func (c *Client) Send(ctx context.Context, grant string, key []byte, n Notification, collapse string) error {
+// notifications for the same session so only the latest is shown. The
+// relay's HTTP status is returned when a response arrived.
+func (c *Client) Send(ctx context.Context, grant string, key []byte, n Notification, collapse string) (int, error) {
 	if len(n.Title) > 80 {
 		n.Title = n.Title[:80]
 	}
 	pt, err := json.Marshal(n)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	ct, err := Encrypt(key, pt)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if len(ct) > MaxPayload {
-		return errors.New("push: payload too large")
+		return 0, errors.New("push: payload too large")
 	}
 	body, _ := json.Marshal(map[string]string{
 		"grant":    grant,
@@ -131,22 +132,22 @@ func (c *Client) Send(ctx context.Context, grant string, key []byte, n Notificat
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.RelayURL+"/v1/push", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "porthole-daemon")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	switch {
 	case resp.StatusCode == 200 || resp.StatusCode == 202:
-		return nil
+		return resp.StatusCode, nil
 	case resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 410 || resp.StatusCode == 429:
-		return fmt.Errorf("%w (%d)", ErrRejected, resp.StatusCode)
+		return resp.StatusCode, fmt.Errorf("%w (%d)", ErrRejected, resp.StatusCode)
 	default:
-		return fmt.Errorf("push: relay returned %s", resp.Status)
+		return resp.StatusCode, fmt.Errorf("push: relay returned %s", resp.Status)
 	}
 }

@@ -71,8 +71,13 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  /// How long a connected machine may stay silent before a wake dials it
+  /// again: a socket that died while the phone slept looks open until then.
+  static const staleAfter = Duration(seconds: 30);
+
   /// The network changed or the app came back to the foreground: retry every
-  /// machine that is not online. Debounced so a burst of events becomes one
+  /// machine that is not online, and redial the ones that look online but
+  /// have been silent too long. Debounced so a burst of events becomes one
   /// attempt. Machines with auto-connect off are left alone.
   void wake() {
     if (!loaded) return;
@@ -80,7 +85,13 @@ class AppStore extends ChangeNotifier {
     _wake = Timer(const Duration(milliseconds: 500), () {
       for (final d in daemons) {
         final c = _client(d);
-        if (!c.isDemo && !c.online && d.autoConnect) c.connect(manual: true);
+        if (c.isDemo || !d.autoConnect) continue;
+        if (!c.online) {
+          c.connect(manual: true);
+          continue;
+        }
+        final last = c.lastFrameAt;
+        if (last != null && DateTime.now().difference(last) > staleAfter) c.reconnect();
       }
     });
   }

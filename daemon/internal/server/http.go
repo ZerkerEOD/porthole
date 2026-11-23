@@ -224,16 +224,31 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+// readDeadline is how long a connection may stay silent. The app pings
+// every 20 s; a peer that misses two is gone and its subscriptions are
+// released.
+const readDeadline = 45 * time.Second
+
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	d := r.Context().Value(deviceKey).(Device)
+	var c *conn
+	idle := time.AfterFunc(readDeadline, func() {
+		if c != nil {
+			c.close(websocket.StatusGoingAway, "keepalive timeout")
+		}
+	})
+	defer idle.Stop()
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols: []string{"porthole.v1"},
+		// Ping frames are answered by the library inside Read; they only
+		// need to refresh the deadline here.
+		OnPingReceived: func(context.Context, []byte) bool { idle.Reset(readDeadline); return true },
 	})
 	if err != nil {
 		return
 	}
 	ws.SetReadLimit(maxMessageBytes)
-	c := &conn{h: s.hub, ws: ws, device: d, log: s.log.With("device", d.ID), lim: rate.NewLimiter(60, 120),
+	c = &conn{h: s.hub, ws: ws, device: d, log: s.log.With("device", d.ID), lim: rate.NewLimiter(60, 120),
 		subs: map[string]bool{}, paneSubs: map[string]bool{}, send: make(chan []byte, sendQueue), pane: map[string]*tmux0{}, paneKick: make(chan struct{}, 1)}
 	if n := s.hub.add(c); n > maxConnsPerDevice {
 		s.hub.remove(c)
@@ -255,6 +270,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			c.log.Info("disconnected", "reason", err.Error())
 			return
 		}
+		idle.Reset(readDeadline)
 		var m Message
 		if err := json.Unmarshal(data, &m); err != nil {
 			c.reply("", false, "bad json", nil)

@@ -6,22 +6,38 @@ import 'ansi.dart';
 /// Renders a captured tmux screen with quick keys. Pinch-free: the font is
 /// sized so the pane's width fits, and the user can scroll horizontally.
 class TerminalView extends StatelessWidget {
-  const TerminalView({super.key, required this.screen, required this.onKeys, required this.onText});
+  const TerminalView({super.key, required this.screen, required this.onKeys, required this.onText, this.error, this.onRetry});
   final ScreenSnapshot? screen;
   final void Function(List<String>) onKeys;
   final void Function(String text, bool enter) onText;
+  /// Why the pane could not be subscribed; shown with a Retry button in
+  /// place of the spinner.
+  final String? error;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final base = TextStyle(fontFamily: 'monospace', fontSize: 11.5, height: 1.25, color: const Color(0xFFE6E6E6));
     final s = screen;
+    final err = error;
     return Column(children: [
       Expanded(
         child: Container(
           color: const Color(0xFF000000),
           width: double.infinity,
           child: s == null
-              ? const Center(child: CircularProgressIndicator())
+              ? Center(
+                  child: err == null
+                      ? const CircularProgressIndicator()
+                      : Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(mainAxisSize: MainAxisSize.min, children: [
+                            Text(err, textAlign: TextAlign.center, style: base.copyWith(fontSize: 13)),
+                            const SizedBox(height: 12),
+                            OutlinedButton(onPressed: onRetry, style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFFE6E6E6)), child: const Text('Retry')),
+                          ]),
+                        ),
+                )
               : SingleChildScrollView(
                   reverse: true,
                   child: SingleChildScrollView(

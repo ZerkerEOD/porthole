@@ -178,6 +178,20 @@ class DemoDaemonClient extends DaemonClient {
         _pane(fx.claude1);
         _later(const Duration(seconds: 45), _askCodex);
         return {'ok': true};
+      case 'question.answer':
+        final answers = (p['answers'] as List?) ?? const [];
+        final first = answers.isEmpty ? const <String, dynamic>{} : Map<String, dynamic>.from(answers.first as Map);
+        final labels = ['Three-segment button', 'Keep the radios', 'Dropdown'];
+        final idx = first['index'];
+        final chosen = first['text'] as String? ?? (idx is int && idx >= 0 && idx < labels.length ? labels[idx] : labels.first);
+        _append(fx.claude2, 'tool.result', result: {'tool_use_id': 'tu_q1', 'is_error': false}, text: 'Your questions have been answered: "The theme picker has three options and SegmentedButton fits two. How should it look?"="$chosen". You can now continue with these answers in mind.');
+        _upsert(fx.claude2, {'status': 'busy', 'question': null});
+        _later(const Duration(seconds: 2), () {
+          _append(fx.claude2, 'assistant.text', text: 'Going with "$chosen". Updating the theme picker now.');
+          _upsert(fx.claude2, {'status': 'idle'});
+          _pane(fx.claude2);
+        });
+        return {'ok': true, 'data': {'ok': true}};
       case 'pane.subscribe':
         _tickers[key]?.cancel();
         _tickers[key] = Timer.periodic(const Duration(seconds: 2), (_) {

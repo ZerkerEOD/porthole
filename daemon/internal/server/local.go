@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ZerkerEOD/porthole/daemon/internal/config"
@@ -31,7 +33,8 @@ type Local struct {
 	start time.Time
 	// notifications is the ring of recent "needs attention" events, read by
 	// the push path (M7) and the status command.
-	notes []Note
+	noteMu sync.Mutex
+	notes  []Note
 }
 
 // Note is an attention event derived from hooks.
@@ -45,7 +48,12 @@ type Note struct {
 
 // NewLocal builds the local API.
 func NewLocal(cfg *config.Config, reg *core.Registry, store *Store, srv *Server, log *slog.Logger) *Local {
-	return &Local{cfg: cfg, reg: reg, store: store, srv: srv, log: log, start: time.Now()}
+	l := &Local{cfg: cfg, reg: reg, store: store, srv: srv, log: log, start: time.Now()}
+	reg.OnAttention(func(kind, key, text string) {
+		prov, _, _ := strings.Cut(key, ":")
+		l.note(Note{Provider: prov, SessionKey: key, Kind: kind, Text: text})
+	})
+	return l
 }
 
 // PairInfo is what `porthole pair` renders as a QR code.
@@ -135,7 +143,12 @@ func (l *Local) routes() http.Handler {
 		}
 		writeJSON(w, ReloadResult{Workspaces: ws, Repos: rs})
 	})
-	mux.HandleFunc("GET /notes", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, l.notes) })
+	mux.HandleFunc("GET /notes", func(w http.ResponseWriter, r *http.Request) {
+		l.noteMu.Lock()
+		notes := append([]Note(nil), l.notes...)
+		l.noteMu.Unlock()
+		writeJSON(w, notes)
+	})
 	mux.HandleFunc("POST /hook", l.handleClaudeHook)
 	mux.HandleFunc("POST /codex-notify", l.handleCodexNotify)
 	return mux
@@ -143,10 +156,12 @@ func (l *Local) routes() http.Handler {
 
 func (l *Local) note(n Note) {
 	n.At = time.Now()
+	l.noteMu.Lock()
 	l.notes = append(l.notes, n)
 	if len(l.notes) > 100 {
 		l.notes = l.notes[len(l.notes)-100:]
 	}
+	l.noteMu.Unlock()
 	title := n.Text
 	if s, ok := l.reg.Get(n.SessionKey); ok && s.Title != "" {
 		title = s.Title
@@ -174,10 +189,12 @@ type claudeHook struct {
 
 func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	var h claudeHook
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&h); err != nil {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil || json.Unmarshal(body, &h) != nil {
 		http.Error(w, "bad hook payload", 400)
 		return
 	}
+	l.log.Debug("hook payload", "body", string(body))
 	if h.SessionID == "" || h.TranscriptPath == "" {
 		http.Error(w, "missing session", 400)
 		return
@@ -189,7 +206,7 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := l.reg.RegisterFromHook("claude", h.SessionID, h.TranscriptPath, h.Cwd)
 	key := sess.Key
-	l.log.Debug("hook", "event", h.HookEventName, "session", key)
+	l.log.Info("hook", "event", h.HookEventName, "notification_type", h.NotificationType, "tool_name", h.ToolName, "session", h.SessionID)
 	switch h.HookEventName {
 	case "SessionStart":
 		l.reg.SetStatus(key, transcript.StatusIdle)
@@ -203,9 +220,17 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 		l.note(Note{Provider: "claude", SessionKey: key, Kind: "done", Text: sess.Title})
 	case "PostModelSwitch":
 		go l.reg.RefreshAccounts(context.Background())
+	case "PostToolUse":
+		if h.ToolName == askTool {
+			l.reg.ClearQuestion(key, "")
+		}
 	case "Notification":
 		switch h.NotificationType {
 		case "permission_prompt":
+			if cur, ok := l.reg.Get(key); ok && cur.Question != nil {
+				// The question dialog counts as a permission prompt to the CLI.
+				break
+			}
 			l.reg.SetStatus(key, transcript.StatusWaitingPermission)
 			l.note(Note{Provider: "claude", SessionKey: key, Kind: "permission", Text: h.Message})
 		case "idle_prompt", "agent_needs_input", "elicitation_dialog":
@@ -215,6 +240,13 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 			l.note(Note{Provider: "claude", SessionKey: key, Kind: "done", Text: h.Message})
 		}
 	case "PermissionRequest":
+		if h.ToolName == askTool {
+			// The CLI asks permission before it opens the question dialog;
+			// the input carries the questions. No decision: let it open.
+			l.reg.SetQuestion(key, questionItems(h.ToolInput))
+			writeJSON(w, map[string]any{})
+			return
+		}
 		l.note(Note{Provider: "claude", SessionKey: key, Kind: "permission", Text: h.ToolName})
 		timeout := time.Duration(l.cfg.Hooks.PermissionTimeoutS) * time.Second
 		if timeout <= 0 {
@@ -236,30 +268,88 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{})
 }
 
-// transcriptAllowed checks the hook's transcript lives under a known profile.
+// askTool is the Claude Code tool whose dialog question.answer drives.
+const askTool = "AskUserQuestion"
+
+// questionItems decodes the AskUserQuestion tool input.
+func questionItems(input map[string]any) []core.QuestionItem {
+	b, err := json.Marshal(input)
+	if err != nil {
+		return nil
+	}
+	var in struct {
+		Questions []core.QuestionItem `json:"questions"`
+	}
+	if json.Unmarshal(b, &in) != nil {
+		return nil
+	}
+	return in.Questions
+}
+
+// transcriptAllowed checks the hook's transcript lives under a known
+// profile's projects directory. The file may not exist yet (SessionStart in
+// a new project directory), so symlinks are resolved on the deepest existing
+// ancestor and the rest of the path is appended.
 func (l *Local) transcriptAllowed(p string) bool {
-	real, err := filepath.EvalSymlinks(p)
+	real, err := resolveExisting(p)
 	if err != nil {
 		return false
 	}
+	var cands []string
 	for _, s := range l.reg.Sessions() {
 		if s.Profile != "" {
-			if proj, err := filepath.EvalSymlinks(filepath.Join(s.Profile, "projects")); err == nil && strings.HasPrefix(real, proj+string(filepath.Separator)) {
-				return true
-			}
+			cands = append(cands, s.Profile)
 		}
 	}
 	// No sessions yet: accept the default profile and configured extras.
-	cands := append([]string{config.Expand("~/.claude")}, l.cfg.Profiles...)
+	cands = append(cands, config.Expand("~/.claude"))
+	cands = append(cands, l.cfg.Profiles...)
 	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
 		cands = append(cands, v)
 	}
-	for _, c := range cands {
-		if proj, err := filepath.EvalSymlinks(filepath.Join(c, "projects")); err == nil && strings.HasPrefix(real, proj+string(filepath.Separator)) {
+	return underProjects(real, cands)
+}
+
+// underProjects reports whether real (a resolved path) is inside the
+// projects directory of one of the profile dirs.
+func underProjects(real string, profiles []string) bool {
+	for _, c := range profiles {
+		proj, err := filepath.EvalSymlinks(filepath.Join(c, "projects"))
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(real, proj+string(filepath.Separator)) {
 			return true
 		}
 	}
 	return false
+}
+
+// resolveExisting evaluates symlinks on the longest existing prefix of p and
+// appends the missing components, so a path to a file that is about to be
+// created resolves like its directory does.
+func resolveExisting(p string) (string, error) {
+	p = filepath.Clean(p)
+	if !filepath.IsAbs(p) {
+		return "", errors.New("relative path")
+	}
+	var rest []string
+	for {
+		real, err := filepath.EvalSymlinks(p)
+		if err == nil {
+			for i := len(rest) - 1; i >= 0; i-- {
+				real = filepath.Join(real, rest[i])
+			}
+			return real, nil
+		}
+		parent, base := filepath.Split(p)
+		parent = filepath.Clean(parent)
+		if base == "" || base == ".." || parent == p {
+			return "", err
+		}
+		rest = append(rest, base)
+		p = parent
+	}
 }
 
 func (l *Local) handleCodexNotify(w http.ResponseWriter, r *http.Request) {

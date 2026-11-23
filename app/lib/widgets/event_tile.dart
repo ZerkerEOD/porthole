@@ -46,6 +46,7 @@ class EventTile extends StatelessWidget {
           child: Text(event.text, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic, fontSize: 13)),
         );
       case 'tool.use':
+        if (event.tool?.isQuestion ?? false) return _QuestionTile(use: event, result: result);
         return _ToolCard(use: event, result: result);
       case 'tool.result':
         return const SizedBox.shrink(); // rendered inside its tool card
@@ -119,6 +120,53 @@ class _CollapsibleState extends State<_Collapsible> {
           ),
         ),
         if (_open) Padding(padding: const EdgeInsets.fromLTRB(10, 0, 10, 10), child: widget.child),
+      ]),
+    );
+  }
+}
+
+/// A question the session asked, with the picked answer once it is in.
+class _QuestionTile extends StatelessWidget {
+  const _QuestionTile({required this.use, this.result});
+  final Event use;
+  final Event? result;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final q = PendingQuestion.fromToolUse(use.tool!);
+    final r = result;
+    final answers = r == null ? const <(String, String)>[] : parseQuestionAnswers(r.text);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(10)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.help_outline, size: 16, color: cs.primary),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('Question', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+          if (r == null)
+            const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+          else
+            Icon(r.isError ? Icons.error_outline : Icons.check, size: 16, color: r.isError ? cs.error : Colors.green),
+        ]),
+        for (final spec in q.questions)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (spec.header.isNotEmpty) _chip(context, spec.header, cs.primary),
+              Text(spec.question, style: const TextStyle(fontSize: 13)),
+            ]),
+          ),
+        if (r != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              answers.isEmpty ? 'Answered' : 'Answered: ${answers.map((a) => a.$2).join(', ')}',
+              style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant, fontStyle: FontStyle.italic),
+            ),
+          ),
       ]),
     );
   }

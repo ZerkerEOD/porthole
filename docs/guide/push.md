@@ -2,12 +2,16 @@
 
 While the app is open, or kept alive on Android with
 [Stay connected in the background](../getting-started/app.md#settings), it
-receives permission prompts and finished turns from the daemon over the VPN.
+receives permission prompts, questions and finished turns from the daemon over
+the VPN.
 Once the app is closed, and on iOS as soon as it leaves the foreground (see
 [iOS background behavior](../reference/ios-background.md)), only the
 platform push service can reach it. That needs a server holding the app's push
 credentials: the push relay. Without a relay, alerts arrive only while the app
 is open.
+
+A push goes only to phones that are not connected to that machine at that
+moment; a connected app gets the same event over the socket instead.
 
 ## What the relay sees
 

@@ -158,33 +158,66 @@ var allowedKeys = map[string]bool{
 }
 
 // SendKeys presses named keys (Enter, Escape, Up, C-c, ...) or single
-// printable characters in order.
+// printable characters in order. Named keys and literal characters go in
+// separate send-keys calls because -l applies to everything after it.
 func (c *Client) SendKeys(ctx context.Context, paneID string, keys []string) error {
+	cmds, err := keyCommands(paneID, keys)
+	if err != nil {
+		return err
+	}
+	for _, args := range cmds {
+		if _, err := c.run(ctx, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// keyCommands validates keys and groups them into send-keys argv lists: a
+// run of named keys shares one call, a run of literal characters shares one
+// -l call.
+func keyCommands(paneID string, keys []string) ([][]string, error) {
 	if !ValidPaneID(paneID) {
-		return errors.New("tmux: invalid pane id")
+		return nil, errors.New("tmux: invalid pane id")
 	}
 	if len(keys) == 0 || len(keys) > 32 {
-		return errors.New("tmux: 1..32 keys")
+		return nil, errors.New("tmux: 1..32 keys")
 	}
-	args := []string{"send-keys", "-t", paneID}
+	var cmds [][]string
+	var cur []string
+	literal := false
+	flush := func() {
+		if len(cur) > 0 {
+			cmds = append(cmds, cur)
+			cur = nil
+		}
+	}
 	for _, k := range keys {
 		switch {
 		case allowedKeys[k]:
-			args = append(args, k)
+			if literal {
+				flush()
+			}
+			literal = false
+			if cur == nil {
+				cur = []string{"send-keys", "-t", paneID}
+			}
+			cur = append(cur, k)
 		case len([]rune(k)) == 1 && k[0] >= 0x20 && k != ";":
-			args = append(args, "-l", k)
-			// -l applies to the rest of the args in tmux; re-add target to reset.
-			args = append(args, ";", "send-keys", "-t", paneID)
+			if !literal {
+				flush()
+			}
+			literal = true
+			if cur == nil {
+				cur = []string{"send-keys", "-t", paneID, "-l", "--"}
+			}
+			cur = append(cur, k)
 		default:
-			return fmt.Errorf("tmux: key %q not allowed", k)
+			return nil, fmt.Errorf("tmux: key %q not allowed", k)
 		}
 	}
-	// Trim a trailing empty send-keys command if the last key was literal.
-	if len(args) >= 4 && args[len(args)-4] == ";" {
-		args = args[:len(args)-4]
-	}
-	_, err := c.run(ctx, args...)
-	return err
+	flush()
+	return cmds, nil
 }
 
 // Screen is a captured pane with cursor position.
