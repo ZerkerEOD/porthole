@@ -183,15 +183,26 @@ class QuestionSpec {
 /// A question set the session is waiting on, from `Session.question` or
 /// from an unanswered question tool use in the transcript.
 class PendingQuestion {
-  PendingQuestion({required this.id, required this.questions});
+  PendingQuestion({required this.id, required this.questions, this.recovered = false, this.remaining = 0});
   PendingQuestion.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String? ?? '',
-        questions = _specs(j['questions']);
+        questions = _specs(j['questions']),
+        recovered = j['recovered'] == true,
+        remaining = (j['remaining'] as num?)?.toInt() ?? 0;
   PendingQuestion.fromToolUse(ToolUse t)
       : id = t.id,
-        questions = _specs(t.input is Map ? (t.input as Map)['questions'] : null);
+        questions = _specs(t.input is Map ? (t.input as Map)['questions'] : null),
+        recovered = false,
+        remaining = 0;
   final String id;
   final List<QuestionSpec> questions;
+
+  /// True when the daemon read the question off the terminal rather than from
+  /// the hook; it then serves the dialog one question at a time.
+  final bool recovered;
+
+  /// How many more questions follow a recovered one.
+  final int remaining;
 
   /// A stable digest of the questions themselves (not the id), so a draft
   /// survives the daemon re-issuing the same set and is dropped when the

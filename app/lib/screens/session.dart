@@ -389,20 +389,22 @@ class _SessionScreenState extends State<SessionScreen> {
         if (question != null)
           _QuestionStrip(
             key: ValueKey('question-$_key-${question.id}'),
-            count: question.questions.length,
+            count: question.questions.length + question.remaining,
             provider: s?.provider ?? 'claude',
             hasDraft: _draftFor(question) != null,
+            recovered: question.recovered,
             onAnswer: () => _openQuestion(question),
           ),
         if (question == null && s != null && s.running && s.status == 'waiting_input')
           Material(
             color: cs.tertiaryContainer,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
               child: Row(children: [
                 Icon(Icons.keyboard_outlined, size: 18, color: cs.onTertiaryContainer),
                 const SizedBox(width: 8),
-                Expanded(child: Text('Waiting for your answer', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onTertiaryContainer, fontWeight: FontWeight.w500))),
+                Expanded(child: Text(_terminal ? 'Waiting for your answer in the terminal' : 'Waiting for your answer', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onTertiaryContainer, fontWeight: FontWeight.w500))),
+                if (!_terminal && controllable) TextButton(onPressed: _toggleTerminal, child: const Text('Open terminal')),
               ]),
             ),
           ),
@@ -479,10 +481,11 @@ class _SessionScreenState extends State<SessionScreen> {
 /// One line for a question the session is waiting on, in both views; the
 /// answers are collected in [QuestionFlowScreen].
 class _QuestionStrip extends StatelessWidget {
-  const _QuestionStrip({super.key, required this.count, required this.provider, required this.hasDraft, required this.onAnswer});
+  const _QuestionStrip({super.key, required this.count, required this.provider, required this.hasDraft, required this.onAnswer, this.recovered = false});
   final int count;
   final String provider;
   final bool hasDraft;
+  final bool recovered;
   final VoidCallback onAnswer;
 
   @override
@@ -496,7 +499,7 @@ class _QuestionStrip extends StatelessWidget {
         child: Row(children: [
           Icon(Icons.help_outline, size: 18, color: cs.onPrimaryContainer),
           const SizedBox(width: 8),
-          Expanded(child: Text(count == 1 ? '$who is asking a question' : '$who is asking $count questions', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onPrimaryContainer, fontWeight: FontWeight.w500))),
+          Expanded(child: Text('${count == 1 ? '$who is asking a question' : '$who is asking $count questions'}${recovered ? ' (one at a time)' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onPrimaryContainer, fontWeight: FontWeight.w500))),
           FilledButton(onPressed: onAnswer, child: Text(hasDraft ? 'Answer (draft saved)' : 'Answer')),
         ]),
       ),

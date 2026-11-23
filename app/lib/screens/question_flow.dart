@@ -143,7 +143,7 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(tooltip: 'Close', icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).pop()),
-        title: Text(_onReview ? 'Review' : 'Question ${_page + 1} of $_count'),
+        title: Text(_onReview ? 'Review' : widget.question.recovered ? 'Question ${_page + 1} of ${_count + widget.question.remaining}' : 'Question ${_page + 1} of $_count'),
       ),
       body: Column(children: [
         if (!online)

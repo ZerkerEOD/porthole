@@ -45,11 +45,20 @@ func TestQuestionLifecycle(t *testing.T) {
 	if r.SetQuestion("claude:s", items) != q || len(notices) != 1 {
 		t.Fatal("repeat dialog changed id or notified again")
 	}
-	// The 3 s scan keeps it while the transcript is silent.
+	// The 3 s scan keeps it while the transcript is silent, even when the
+	// CLI touches the file without writing a record.
 	live := Session{Key: "claude:s", ID: "s", Provider: "claude", Running: true, Status: transcript.StatusBusy, TranscriptPath: path, PaneID: "%1", Controllable: true}
 	r.finishLive(&live, path)
 	if s, _ := r.Get("claude:s"); s.Question != q || s.Status != transcript.StatusWaitingInput {
 		t.Fatalf("scan dropped the question: %+v", s)
+	}
+	if err := os.Chtimes(path, time.Now().Add(2*time.Hour), time.Now().Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	live = Session{Key: "claude:s", ID: "s", Provider: "claude", Running: true, Status: transcript.StatusBusy, TranscriptPath: path, PaneID: "%1", Controllable: true}
+	r.finishLive(&live, path)
+	if s, _ := r.Get("claude:s"); s.Question != q || s.Status != transcript.StatusWaitingInput {
+		t.Fatalf("touched transcript dropped the question: %+v", s)
 	}
 	// A result stamped after the dialog opened closes it.
 	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
@@ -157,3 +166,5 @@ func TestScreenChecks(t *testing.T) {
 		t.Fatalf("last lines %q", got)
 	}
 }
+
+func screenOf(lines []string) *tmux.Screen { return &tmux.Screen{Lines: lines} }

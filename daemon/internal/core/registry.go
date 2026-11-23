@@ -37,6 +37,7 @@ type Registry struct {
 	paneSubs  map[string]int // pane subscribers per key
 	paneHash  map[string]uint64
 	spawned   map[string]spawnInfo // pane id -> info
+	answering map[string]bool      // keys whose dialog question.answer is driving
 	listeners []Listener
 	attention []func(kind, key, text string)
 
@@ -80,6 +81,7 @@ func New(cfg *config.Config, log *slog.Logger) *Registry {
 		paneSubs:   map[string]int{},
 		paneHash:   map[string]uint64{},
 		spawned:    map[string]spawnInfo{},
+		answering:  map[string]bool{},
 		summaries:  map[string]summaryEntry{},
 		cs:         &cswap.Client{Binary: cfg.Cswap.Binary},
 		workspaces: append([]string(nil), cfg.Workspaces...),
@@ -429,6 +431,7 @@ func (r *Registry) scan(ctx context.Context) {
 	for _, k := range pendings {
 		r.remove(k)
 	}
+	r.recoverQuestions(ctx)
 }
 
 // finishLive merges summary data and spawn bookkeeping into a live session
@@ -447,7 +450,9 @@ func (r *Registry) finishLive(s *Session, path string) {
 			s.Status = prev.Status
 		}
 		s.Spawned = prev.Spawned
-		if q := prev.Question; q != nil && !transcriptTouched(path, q.SetAt) {
+		// The dialog stays until a hook or the transcript says it closed;
+		// the CLI touches the file while one is open.
+		if q := prev.Question; q != nil {
 			s.Question, s.Status = q, transcript.StatusWaitingInput
 		}
 	}
@@ -504,15 +509,6 @@ func (r *Registry) finishLive(s *Session, path string) {
 		r.each(func(l Listener) { l.SessionReplaced(placeholder, s.Key) })
 		r.remove(placeholder)
 	}
-}
-
-// transcriptTouched reports whether the transcript was written after t.
-func transcriptTouched(path string, t time.Time) bool {
-	if path == "" {
-		return false
-	}
-	st, err := os.Stat(path)
-	return err == nil && st.ModTime().After(t)
 }
 
 func (r *Registry) accountFor(prov string, a AccountsSnapshot) string {
@@ -779,9 +775,7 @@ func (r *Registry) SetQuestion(key string, items []QuestionItem) *Question {
 	if s.Question != nil && sameQuestions(s.Question.Questions, items) {
 		return s.Question
 	}
-	var rnd [8]byte
-	_, _ = rand.Read(rnd[:])
-	q := &Question{ID: hex.EncodeToString(rnd[:]), Questions: items, SetAt: time.Now()}
+	q := &Question{ID: newQuestionID(), Questions: items, SetAt: time.Now()}
 	s.Question, s.Status, s.UpdatedAt = q, transcript.StatusWaitingInput, time.Now()
 	r.upsert(s)
 	r.log.Info("question pending", "session", key, "id", q.ID, "questions", len(items))

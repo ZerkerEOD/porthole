@@ -81,10 +81,18 @@ func optionShown(text string, q QuestionItem) bool {
 
 // questionShown reports whether q's dialog is on screen.
 func questionShown(text string, q QuestionItem) bool {
-	head := collapse(q.Question) != "" && strings.Contains(text, collapse(q.Question)) ||
-		collapse(q.Header) != "" && strings.Contains(text, collapse(q.Header))
-	return head && optionShown(text, q)
+	return (questionTextShown(text, q) || collapse(q.Header) != "" && strings.Contains(text, collapse(q.Header))) && optionShown(text, q)
 }
+
+// questionTextShown reports whether q's question text is on screen; the
+// header does not count, since the tab row lists every header.
+func questionTextShown(text string, q QuestionItem) bool {
+	return collapse(q.Question) != "" && strings.Contains(unboxed(text), collapse(q.Question))
+}
+
+// unboxed drops the "│" the CLI puts in front of each question line, so a
+// wrapped question matches as one string.
+func unboxed(text string) string { return collapse(strings.ReplaceAll(text, "│", " ")) }
 
 func checkedCount(text string) int {
 	return strings.Count(text, "[✔]") + strings.Count(text, "[x]") + strings.Count(text, "[X]")
@@ -224,6 +232,14 @@ func (r *Registry) AnswerQuestion(ctx context.Context, key, id string, answers [
 	if err := validateAnswers(q, answers); err != nil {
 		return AnswerResult{Reason: err.Error()}, nil
 	}
+	r.mu.Lock()
+	r.answering[key] = true
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		delete(r.answering, key)
+		r.mu.Unlock()
+	}()
 	d := &questionDriver{r: r, key: key, pane: s.PaneID, ctx: ctx}
 	text, err := d.capture()
 	if err != nil {
@@ -233,12 +249,15 @@ func (r *Registry) AnswerQuestion(ctx context.Context, key, id string, answers [
 		return AnswerResult{Reason: "question is not on screen"}, nil
 	}
 	answered := strings.Count(text, answeredLine)
-	r.log.Info("question answer", "session", key, "id", id, "questions", len(q.Questions))
+	r.log.Info("question answer", "session", key, "id", id, "questions", len(q.Questions), "recovered", q.Recovered)
 	done := func(text string) string {
 		if strings.Count(text, answeredLine) > answered || (d.cleared(id) && !strings.Contains(text, dialogFooter)) {
 			return "done"
 		}
 		return ""
+	}
+	if q.Recovered {
+		return r.answerRecovered(d, q, answers[0], done)
 	}
 	for i, item := range q.Questions {
 		res, err := d.answerOne(item, answers[i])
@@ -291,6 +310,78 @@ func (r *Registry) AnswerQuestion(ctx context.Context, key, id string, answers [
 			return d.unexpected(), nil
 		}
 	}
+	return d.unexpected(), nil
+}
+
+// answerRecovered answers the one question a recovered dialog shows. The
+// dialog then either submits, moves to the review screen (submitted here),
+// or draws the next question, which is published as a new pending question.
+func (r *Registry) answerRecovered(d *questionDriver, q *Question, a Answer, done func(string) string) (AnswerResult, error) {
+	item := q.Questions[0]
+	res, err := d.answerOne(item, a)
+	if err != nil || !res.OK {
+		return res, err
+	}
+	st, err := d.waitFor(stepWait, func(text string) string {
+		if st := done(text); st != "" {
+			return st
+		}
+		if strings.Contains(text, reviewTitle) || strings.Contains(text, reviewSubmit) {
+			return "review"
+		}
+		if !questionTextShown(text, item) {
+			return "next"
+		}
+		return ""
+	})
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	switch st {
+	case "done":
+		r.ClearQuestion(d.key, q.ID)
+		return AnswerResult{OK: true}, nil
+	case "review":
+		if err := d.press("Enter"); err != nil {
+			return AnswerResult{}, err
+		}
+	case "":
+		if q.Remaining > 0 {
+			return d.unexpected(), nil
+		}
+		// A lone question submits straight away; give it a moment.
+		if st, err = d.waitFor(finalWait, done); err != nil {
+			return AnswerResult{}, err
+		}
+		if st == "done" {
+			r.ClearQuestion(d.key, q.ID)
+			return AnswerResult{OK: true}, nil
+		}
+		return d.unexpected(), nil
+	}
+	// The dialog moved on: wait for the submission or for the next question.
+	st, err = d.waitFor(finalWait, func(text string) string {
+		if st := done(text); st != "" {
+			return st
+		}
+		if _, _, ok := parseDialog(d.last.Lines); ok {
+			return "dialog"
+		}
+		return ""
+	})
+	if err != nil {
+		return AnswerResult{}, err
+	}
+	switch st {
+	case "done":
+		r.ClearQuestion(d.key, q.ID)
+		return AnswerResult{OK: true}, nil
+	case "dialog":
+		if r.recoverFromScreen(d.key, q.ID, d.last) != nil {
+			return AnswerResult{OK: true}, nil
+		}
+	}
+	r.ClearQuestion(d.key, q.ID)
 	return d.unexpected(), nil
 }
 

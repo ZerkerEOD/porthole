@@ -67,7 +67,9 @@ that source out for a minute.
 `status` ∈ `unknown idle busy waiting_permission waiting_input exited`. `key` is `<provider>:<session id>`.
 
 `question` is present while a Claude Code `AskUserQuestion` dialog is open and `status` is then `waiting_input`:
-`{id, questions:[{question, header, multiSelect, options:[{label, description, preview?}]}]}`. `questions` is the tool input as the CLI reported it (`preview` is the optional code or layout sample attached to an option); `id` is opaque and is echoed in `question.answer`. The field disappears once the dialog is answered or dismissed. A push notice of kind `input` is sent for it.
+`{id, questions:[{question, header, multiSelect, options:[{label, description, preview?}]}], recovered?, remaining?}`. `questions` is the tool input as the CLI reported it (`preview` is the optional code or layout sample attached to an option); `id` is opaque and is echoed in `question.answer`. The field disappears once the dialog is answered or dismissed. A push notice of kind `input` is sent for it.
+
+When the daemon did not see the dialog open (it restarted, or the hook never reached it) it reads the dialog off the terminal instead and sets `recovered: true`. Only the question on screen is visible then, so `questions` holds that one item (its `header` is the dialog's tab label, empty for a single-question dialog; `description` is what the screen shows and `preview` is never set) and `remaining` is how many unanswered questions follow it (absent when 0). Answer it with one `Answer`; on success the next question, if any, is published as a new `question` with a new `id`, and the last answer submits the dialog.
 
 **Answer** `{index?, indices?:[int], text?}`: `index` picks one option of a single-select question, `indices` the options of a multi-select one, `text` fills the free-text row (alone for a single select; with or without `indices` for a multi select). Indices are zero-based positions in `options`.
 

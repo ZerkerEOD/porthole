@@ -49,8 +49,14 @@ type Session struct {
 type Question struct {
 	ID        string         `json:"id"`
 	Questions []QuestionItem `json:"questions"`
-	// SetAt is when the hook reported the dialog; the transcript is silent
-	// while it is open, so any later write means it closed.
+	// Recovered is set when the dialog was read off the pane rather than
+	// reported by the hook: only the current question is visible, so the
+	// dialog is served one question at a time and Remaining counts the
+	// unanswered questions that follow.
+	Recovered bool `json:"recovered,omitempty"`
+	Remaining int  `json:"remaining,omitempty"`
+	// SetAt is when the dialog was recorded; the transcript is silent while
+	// it is open, so a later record means it closed.
 	SetAt time.Time `json:"-"`
 }
 
