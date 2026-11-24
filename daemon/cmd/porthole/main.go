@@ -123,6 +123,7 @@ func serveCmd() *cobra.Command {
 			}
 			stop()
 			time.Sleep(200 * time.Millisecond)
+			store.Flush() // write a pending opened-set save
 			return nil
 		},
 	}

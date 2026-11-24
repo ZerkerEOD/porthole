@@ -167,6 +167,7 @@ func (l *Local) note(n Note) {
 		title = s.Title
 	}
 	if n.Kind == "permission" || n.Kind == "input" || n.Kind == "done" {
+		l.log.Info("notice", "kind", n.Kind, "session", n.SessionKey)
 		l.srv.Notify(n.Kind, n.SessionKey, title)
 	}
 }
@@ -215,9 +216,10 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 		l.reg.SetStatus(key, transcript.StatusExited)
 	case "UserPromptSubmit":
 		l.reg.SetStatus(key, transcript.StatusBusy)
+		l.reg.Attention().Reset(key)
 	case "Stop":
 		l.reg.SetStatus(key, transcript.StatusIdle)
-		l.note(Note{Provider: "claude", SessionKey: key, Kind: "done", Text: sess.Title})
+		l.reg.Attention().Stop(key, sess.Title)
 	case "PostModelSwitch":
 		go l.reg.RefreshAccounts(context.Background())
 	case "PostToolUse":
@@ -231,13 +233,11 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 				// The question dialog counts as a permission prompt to the CLI.
 				break
 			}
+			// The PermissionRequest hook already raised the notice.
 			l.reg.SetStatus(key, transcript.StatusWaitingPermission)
-			l.note(Note{Provider: "claude", SessionKey: key, Kind: "permission", Text: h.Message})
 		case "idle_prompt", "agent_needs_input", "elicitation_dialog":
 			l.reg.SetStatus(key, transcript.StatusWaitingInput)
-			l.note(Note{Provider: "claude", SessionKey: key, Kind: "input", Text: h.Message})
-		case "agent_completed":
-			l.note(Note{Provider: "claude", SessionKey: key, Kind: "done", Text: h.Message})
+			l.reg.Attention().Input(key, h.Message)
 		}
 	case "PermissionRequest":
 		if h.ToolName == askTool {
@@ -247,7 +247,7 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{})
 			return
 		}
-		l.note(Note{Provider: "claude", SessionKey: key, Kind: "permission", Text: h.ToolName})
+		l.reg.Attention().Permission(key, h.ToolName)
 		timeout := time.Duration(l.cfg.Hooks.PermissionTimeoutS) * time.Second
 		if timeout <= 0 {
 			timeout = 60 * time.Second
@@ -365,11 +365,16 @@ func (l *Local) handleCodexNotify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad payload", 400)
 		return
 	}
-	key := ""
-	if n.ThreadID != "" {
-		key = "codex:" + n.ThreadID
+	if n.ThreadID == "" {
+		l.log.Debug("codex notify without thread id", "type", n.Type)
+		writeJSON(w, map[string]any{})
+		return
 	}
-	l.note(Note{Provider: "codex", SessionKey: key, Kind: "done", Text: firstLine(n.LastAssistantMessage, 140)})
+	key := "codex:" + n.ThreadID
+	// Like Claude's Stop hook: the turn is over now, whatever the 3 s scan
+	// last read, so the delayed done sees an idle session.
+	l.reg.SetStatus(key, transcript.StatusIdle)
+	l.reg.Attention().Stop(key, firstLine(n.LastAssistantMessage, 140))
 	writeJSON(w, map[string]any{})
 }
 

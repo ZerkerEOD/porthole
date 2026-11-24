@@ -296,7 +296,7 @@ class PushService extends ChangeNotifier {
         'permission' => 'needs a permission approval',
         'input' => 'is waiting for your input',
         'error' => 'hit an error',
-        _ => 'finished',
+        _ => 'finished and is waiting for you',
       };
       await Notifier.instance.init();
       await Notifier.instance.show(id: '${n['s']}', title: '$title${daemon.isNotEmpty ? ' · $daemon' : ''}', body: body, sessionKey: n['s'] as String?, urgent: kind == 'permission' || kind == 'input');

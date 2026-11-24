@@ -57,24 +57,18 @@ func (h *hub) connected(deviceID string) bool {
 	return false
 }
 
-// Notify pushes an attention event to every device that is not connected
-// and has a live grant. Connected devices already see it over the socket.
+// Notify pushes an attention event to every device that is not connected,
+// has a live grant and opened the session (or the daemon spawned it).
+// Connected devices already see it over the socket.
 func (h *hub) Notify(kind, sessionKey, title string) {
 	if h.push == nil || h.store == nil {
 		return
 	}
-	for _, d := range h.store.PushTargets() {
-		if h.connected(d.ID) {
-			continue
-		}
-		dk := d.ID + "|" + sessionKey + "|" + kind
-		h.mu.Lock()
-		if t, ok := h.lastPush[dk]; ok && time.Since(t) < 45*time.Second {
-			h.mu.Unlock()
-			continue
-		}
-		h.lastPush[dk] = time.Now()
-		h.mu.Unlock()
+	spawned := false
+	if s, ok := h.reg.Get(sessionKey); ok {
+		spawned = s.Spawned
+	}
+	for _, d := range h.targets(kind, sessionKey, spawned) {
 		key, err := hex.DecodeString(d.PushSecret)
 		if err != nil {
 			continue
@@ -96,6 +90,39 @@ func (h *hub) Notify(kind, sessionKey, title string) {
 			}
 			h.log.Info("push sent", "device", d.ID, "kind", kind, "status", status)
 		}(d)
+	}
+}
+
+// targets picks the devices a notice goes to: a live grant, no open
+// socket, the session opened on that device (unless spawned here), and no
+// push of the same kind for the session in the last 45 s.
+func (h *hub) targets(kind, sessionKey string, spawned bool) []Device {
+	var out []Device
+	for _, d := range h.store.PushTargets() {
+		if h.connected(d.ID) {
+			continue
+		}
+		if !spawned && !h.store.Opened(d.ID, sessionKey) {
+			h.log.Debug("push skipped", "device", d.ID, "kind", kind, "session", sessionKey, "reason", "not opened")
+			continue
+		}
+		dk := d.ID + "|" + sessionKey + "|" + kind
+		h.mu.Lock()
+		if t, ok := h.lastPush[dk]; ok && time.Since(t) < 45*time.Second {
+			h.mu.Unlock()
+			continue
+		}
+		h.lastPush[dk] = time.Now()
+		h.mu.Unlock()
+		out = append(out, d)
+	}
+	return out
+}
+
+// opened records that a device opened a session, so its notices get pushed.
+func (h *hub) opened(deviceID, key string) {
+	if h.store != nil {
+		h.store.MarkOpened(deviceID, key)
 	}
 }
 
@@ -172,6 +199,9 @@ func (h *hub) SessionUpserted(s core.Session) {
 	h.each(func(c *conn) { c.push("session.upsert", s) })
 }
 func (h *hub) SessionReplaced(oldKey, newKey string) {
+	if h.store != nil {
+		h.store.ReplaceOpened(oldKey, newKey)
+	}
 	h.each(func(c *conn) { c.push("session.replaced", ReplacedMsg{Old: oldKey, New: newKey}) })
 }
 func (h *hub) SessionRemoved(key string) {
@@ -336,6 +366,7 @@ func (c *conn) handle(ctx context.Context, m Message) {
 		if already {
 			reg.Unsubscribe(r.Key) // keep the count at one per connection
 		}
+		c.h.opened(c.device.ID, r.Key)
 		c.reply(m.ID, true, "", HistoryMsg{Key: r.Key, Events: evs, HasMore: more})
 	case "session.unsubscribe":
 		var r KeyReq
@@ -393,6 +424,7 @@ func (c *conn) handle(ctx context.Context, m Message) {
 			c.reply(m.ID, false, err.Error(), nil)
 			return
 		}
+		c.h.opened(c.device.ID, s.Key)
 		c.reply(m.ID, true, "", s)
 	case "pane.subscribe":
 		var r KeyReq
@@ -415,6 +447,7 @@ func (c *conn) handle(ctx context.Context, m Message) {
 		if already {
 			reg.UnsubscribePane(r.Key)
 		}
+		c.h.opened(c.device.ID, r.Key)
 		c.reply(m.ID, true, "", PaneMsg{Key: r.Key, Screen: scr})
 	case "pane.unsubscribe":
 		var r KeyReq

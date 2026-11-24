@@ -60,6 +60,8 @@ class FakeClient extends DaemonClient {
   final Map<String, List<Map<String, dynamic>>> transcripts = {};
   String? refuseQuestion;
   String? failPane;
+  /// When set, session.subscribe fails with this message.
+  String? failSubscribe;
 
   void setState(ConnState s) {
     state = s;
@@ -73,6 +75,7 @@ class FakeClient extends DaemonClient {
     await null; // a microtask, so a plain pump() delivers the answer
     switch (type) {
       case 'session.subscribe':
+        if (failSubscribe != null) throw StateError(failSubscribe!);
         return {'ok': true, 'data': {'events': transcripts[p['key']] ?? const [], 'has_more': false}};
       case 'pane.subscribe':
         if (failPane != null) throw StateError(failPane!);

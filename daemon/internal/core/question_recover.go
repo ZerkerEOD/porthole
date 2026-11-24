@@ -299,7 +299,7 @@ func (r *Registry) recoverFromScreen(key, replace string, scr *tmux.Screen) *Que
 	s.Question, s.Status, s.UpdatedAt = q, transcript.StatusWaitingInput, time.Now()
 	r.upsert(s)
 	r.log.Info("question recovered", "session", key, "id", q.ID, "remaining", remaining)
-	r.attend("input", key, questionText(q))
+	r.gate.Question(key, questionText(q))
 	return q
 }
 

@@ -228,14 +228,17 @@ class PendingQuestion {
 /// Answers in progress for one question set, kept per machine until they are
 /// submitted or the question goes away. Keys are question indices.
 class QuestionDraft {
-  QuestionDraft({Map<int, int>? single, Map<int, Set<int>>? multi, Map<int, String>? other, this.page = 0})
+  QuestionDraft({Map<int, int>? single, Map<int, Set<int>>? multi, Map<int, String>? other, Map<int, String>? notes, this.page = 0})
       : single = single ?? {},
         multi = multi ?? {},
-        other = other ?? {};
+        other = other ?? {},
+        notes = notes ?? {};
 
   final Map<int, int> single;
   final Map<int, Set<int>> multi;
   final Map<int, String> other;
+  /// Free text attached to the choice on a single-select question.
+  final Map<int, String> notes;
   /// The page the flow was on when it was last closed.
   int page;
 
@@ -245,6 +248,7 @@ class QuestionDraft {
         'single': single.map((k, v) => MapEntry('$k', v)),
         'multi': multi.map((k, v) => MapEntry('$k', (v.toList()..sort()))),
         'other': other.map((k, v) => MapEntry('$k', v)),
+        'notes': notes.map((k, v) => MapEntry('$k', v)),
         'page': page,
       };
 
@@ -252,19 +256,22 @@ class QuestionDraft {
         single: {for (final e in (j['single'] as Map? ?? {}).entries) if (e.value is int) int.parse('${e.key}'): e.value as int},
         multi: {for (final e in (j['multi'] as Map? ?? {}).entries) int.parse('${e.key}'): {...(e.value as List? ?? []).whereType<int>()}},
         other: {for (final e in (j['other'] as Map? ?? {}).entries) if (e.value is String) int.parse('${e.key}'): e.value as String},
+        notes: {for (final e in (j['notes'] as Map? ?? {}).entries) if (e.value is String) int.parse('${e.key}'): e.value as String},
         page: j['page'] as int? ?? 0,
       );
 }
 
 /// One answer per question, in order: `index` for a single choice,
-/// `indices` for a multi-select, `text` for a typed answer.
+/// `indices` for a multi-select, `text` for a typed answer, `notes` for
+/// free text attached to a single choice. Empty values are left out.
 class QuestionAnswer {
-  const QuestionAnswer({this.index, this.indices, this.text});
+  const QuestionAnswer({this.index, this.indices, this.text, this.notes});
   final int? index;
   final List<int>? indices;
   final String? text;
+  final String? notes;
 
-  Map<String, dynamic> toJson() => {'index': ?index, 'indices': ?indices, 'text': ?text};
+  Map<String, dynamic> toJson() => {'index': ?index, 'indices': ?indices, 'text': ?text, 'notes': ?notes};
 }
 
 final _answerPair = RegExp(r'"((?:[^"\\]|\\.)*)"="((?:[^"\\]|\\.)*)"');

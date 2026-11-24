@@ -36,6 +36,8 @@ Future<FakeClient> pumpFlow(WidgetTester tester, Map<String, dynamic> q, {FakeCl
   return c;
 }
 
+/// The typed-answer field on a single-select page.
+Finder get otherSingle => find.widgetWithText(TextField, 'Other (instead of the options above)');
 Finder get next => find.widgetWithText(FilledButton, 'Next');
 Finder get submit => find.widgetWithText(FilledButton, 'Submit');
 bool enabled(WidgetTester tester, Finder f) => tester.widget<FilledButton>(f).onPressed != null;
@@ -85,7 +87,7 @@ void main() {
     expect(find.text('Ship it today?'), findsOneWidget);
     expect(find.text('Back'), findsOneWidget);
     expect(enabled(tester, next), isFalse);
-    await tester.enterText(find.widgetWithText(TextField, 'Other'), 'Only if the tests pass');
+    await tester.enterText(otherSingle, 'Only if the tests pass');
     await tester.pump();
     expect(enabled(tester, next), isTrue);
     await tester.tap(next);
@@ -135,7 +137,7 @@ void main() {
       await tester.pump();
       await tester.tap(next);
       await tester.pump();
-      await tester.enterText(find.widgetWithText(TextField, 'Other'), 'Tomorrow');
+      await tester.enterText(otherSingle, 'Tomorrow');
       await tester.pump();
       await tester.tap(next);
       await tester.pump();
@@ -178,7 +180,7 @@ void main() {
 
     testWidgets('a typed answer alone', (tester) async {
       final c = await pumpFlow(tester, questionJson());
-      await tester.enterText(find.widgetWithText(TextField, 'Other'), 'Use QUIC');
+      await tester.enterText(otherSingle, 'Use QUIC');
       await tester.pump();
       await tester.tap(next);
       await tester.pump();
@@ -197,7 +199,7 @@ void main() {
     await tester.pump();
     await tester.tap(next);
     await tester.pump();
-    await tester.enterText(find.widgetWithText(TextField, 'Other'), 'Soon');
+    await tester.enterText(otherSingle, 'Soon');
     await tester.pump();
     await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
@@ -233,6 +235,107 @@ void main() {
     expect(enabled(tester, submit), isTrue);
     c.close();
     await finishFlow(tester, c2);
+  });
+
+  testWidgets('with the keyboard up, Next sits above it and a tap outside the field puts it away', (tester) async {
+    final c = await pumpFlow(tester, questionJson(two: true));
+    await tester.tap(find.text('Polling'));
+    await tester.pump();
+    await tester.tap(next);
+    await tester.pump();
+    await tester.tap(otherSingle);
+    await tester.pump();
+    EditableTextState field() => tester.state<EditableTextState>(find.descendant(of: otherSingle, matching: find.byType(EditableText)));
+    expect(field().widget.focusNode.hasFocus, isTrue);
+
+    final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+    tester.view.viewInsets = FakeViewPadding(bottom: 300 * tester.view.devicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(next).bottom, lessThanOrEqualTo(size.height - 300), reason: 'above the keyboard');
+    expect(next.hitTestable(), findsOneWidget);
+
+    // The empty strip between Back and Next.
+    final back = tester.getCenter(find.text('Back'));
+    await tester.tapAt(Offset((back.dx + tester.getCenter(next).dx) / 2, back.dy));
+    await tester.pump();
+    expect(field().widget.focusNode.hasFocus, isFalse, reason: 'a tap outside unfocuses');
+
+    await tester.enterText(otherSingle, 'Tomorrow');
+    await tester.pump();
+    await tester.tap(next);
+    await tester.pump();
+    expect(find.text('Review'), findsOneWidget);
+    expect(FocusManager.instance.primaryFocus?.context?.widget, isNot(isA<EditableText>()));
+    await finishFlow(tester, c);
+  });
+
+  testWidgets('on a single-select page, Other and the options exclude each other; notes ride along', (tester) async {
+    final c = await pumpFlow(tester, questionJson());
+    int? choice() => tester.widget<RadioGroup<int>>(find.byType(RadioGroup<int>)).groupValue;
+    await tester.tap(find.text('Polling'));
+    await tester.pump();
+    expect(choice(), 1);
+    await tester.enterText(otherSingle, 'Use QUIC');
+    await tester.pump();
+    expect(choice(), isNull, reason: 'typing replaces the choice');
+    expect(enabled(tester, next), isTrue);
+    await tester.tap(find.text('WebSocket'));
+    await tester.pump();
+    expect(choice(), 0);
+    expect(find.text('Use QUIC'), findsNothing, reason: 'a choice clears the typed answer');
+
+    expect(find.widgetWithText(TextField, 'Notes'), findsNothing, reason: 'collapsed until asked for');
+    await tester.tap(find.text('Add notes (optional)'));
+    await tester.pump();
+    await tester.enterText(find.widgetWithText(TextField, 'Notes'), 'Behind the proxy');
+    await tester.pump();
+    expect(choice(), 0, reason: 'notes keep the choice');
+    await tester.tap(next);
+    await tester.pump();
+    expect(find.text('WebSocket'), findsOneWidget);
+    expect(find.text('Notes: Behind the proxy'), findsOneWidget);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(c.sent('question.answer').single['answers'], [
+      {'index': 0, 'notes': 'Behind the proxy'},
+    ]);
+    await finishFlow(tester, c);
+  });
+
+  testWidgets('the review page names each question that needs an answer and holds Submit', (tester) async {
+    final c = FakeClient();
+    c.inject('hello', {'name': 'desk', 'version': '1', 'sessions': [session(key, status: 'waiting_input', question: questionJson(two: true))]});
+    // A restored draft that both chose and typed on the first question and
+    // left the second empty.
+    c.questionDrafts[DaemonClient.questionDraftKey(key, c.sessions[key]!.question!)] = QuestionDraft(single: {0: 1}, other: {0: 'Both'}, page: 2);
+    await pumpFlow(tester, questionJson(two: true), client: c);
+    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('Question 1 needs an answer'), findsOneWidget);
+    expect(find.text('Question 2 needs an answer'), findsOneWidget);
+    expect(enabled(tester, submit), isFalse);
+    await tester.tap(find.text('Edit').last);
+    await tester.pump();
+    expect(find.text('Question 2 of 2'), findsOneWidget);
+    await tester.tap(find.text('Yes'));
+    await tester.pump();
+    await tester.tap(next);
+    await tester.pump();
+    expect(find.text('Question 1 needs an answer'), findsOneWidget);
+    expect(find.text('Question 2 needs an answer'), findsNothing);
+    expect(find.text('Yes'), findsOneWidget);
+    expect(enabled(tester, submit), isFalse);
+    await tester.tap(find.text('Edit').first);
+    await tester.pump();
+    await tester.tap(find.text('WebSocket'));
+    await tester.pump();
+    await tester.tap(next);
+    await tester.pump();
+    await tester.tap(next);
+    await tester.pump();
+    expect(find.textContaining('needs an answer'), findsNothing);
+    expect(enabled(tester, submit), isTrue);
+    await finishFlow(tester, c);
   });
 
   testWidgets('offline disables Submit and keeps the draft; back online it is enabled again', (tester) async {

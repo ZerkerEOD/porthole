@@ -37,7 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const _Header('Notifications'),
         SwitchListTile(
           title: const Text('Notify while connected'),
-          subtitle: const Text('Permission prompts and input requests, when the app is open or kept alive'),
+          subtitle: const Text('Live alerts while the app is open or kept alive. Push alerts are set per machine under Machines.'),
           value: watcher.enabled,
           onChanged: (v) async {
             await watcher.setEnabled(v);

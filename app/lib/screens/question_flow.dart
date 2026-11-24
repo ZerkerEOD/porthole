@@ -28,6 +28,9 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
   late final String _draftKey = DaemonClient.questionDraftKey(widget.sessionKey, widget.question);
   late final QuestionDraft _draft;
   late final List<TextEditingController> _other;
+  late final List<TextEditingController> _notes;
+  /// Pages whose notes field has been opened.
+  final Set<int> _notesOpen = {};
   late final PageController _pages;
   late int _page;
   bool _submitting = false;
@@ -45,6 +48,8 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
     super.initState();
     _draft = widget.client.questionDraft(widget.sessionKey, widget.question) ?? QuestionDraft();
     _other = [for (var i = 0; i < _count; i++) TextEditingController(text: _draft.other[i] ?? '')];
+    _notes = [for (var i = 0; i < _count; i++) TextEditingController(text: _draft.notes[i] ?? '')];
+    _notesOpen.addAll([for (var i = 0; i < _count; i++) if (_draft.notes[i]?.trim().isNotEmpty ?? false) i]);
     _page = _draft.page.clamp(0, _count);
     _pages = PageController(initialPage: _page);
     widget.client.addListener(_onClient);
@@ -54,6 +59,9 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
   void dispose() {
     widget.client.removeListener(_onClient);
     for (final c in _other) {
+      c.dispose();
+    }
+    for (final c in _notes) {
       c.dispose();
     }
     _pages.dispose();
@@ -97,15 +105,40 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
     _save();
   }
 
-  bool get _complete => _count > 0 && List.generate(_count, _draft.answered).every((a) => a);
+  String? _text(int i) {
+    final t = _draft.other[i]?.trim() ?? '';
+    return t.isEmpty ? null : t;
+  }
+
+  String? _note(int i) {
+    final t = _draft.notes[i]?.trim() ?? '';
+    return t.isEmpty ? null : t;
+  }
+
+  /// Whether page [i] holds an answer the daemon accepts: a multi-select
+  /// needs choices or text (or both); a single-select needs exactly one of
+  /// a choice and text.
+  bool _valid(int i) {
+    final typed = _text(i) != null;
+    if (_qs[i].multiSelect) return (_draft.multi[i]?.isNotEmpty ?? false) || typed;
+    return (_draft.single[i] != null) != typed;
+  }
+
+  bool get _complete => _count > 0 && List.generate(_count, _valid).every((a) => a);
 
   List<QuestionAnswer> _answers() => [
         for (var i = 0; i < _count; i++)
-          QuestionAnswer(
-            index: _qs[i].multiSelect ? null : _draft.single[i],
-            indices: _qs[i].multiSelect && (_draft.multi[i]?.isNotEmpty ?? false) ? (_draft.multi[i]!.toList()..sort()) : null,
-            text: (_draft.other[i]?.trim().isEmpty ?? true) ? null : _draft.other[i]!.trim(),
-          ),
+          if (_qs[i].multiSelect)
+            QuestionAnswer(
+              indices: (_draft.multi[i]?.isNotEmpty ?? false) ? (_draft.multi[i]!.toList()..sort()) : null,
+              text: _text(i),
+            )
+          else
+            QuestionAnswer(
+              index: _draft.single[i],
+              text: _draft.single[i] == null ? _text(i) : null,
+              notes: _note(i),
+            ),
       ];
 
   Future<void> _submit() async {
@@ -145,41 +178,49 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
         leading: IconButton(tooltip: 'Close', icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).pop()),
         title: Text(_onReview ? 'Review' : widget.question.recovered ? 'Question ${_page + 1} of ${_count + widget.question.remaining}' : 'Question ${_page + 1} of $_count'),
       ),
-      body: Column(children: [
-        if (!online)
-          MaterialBanner(
-            leading: const Icon(Icons.vpn_lock),
-            content: Text('Connection to ${widget.client.info.displayName} lost. Reconnecting… Your answers are kept.'),
-            actions: [TextButton(onPressed: () => widget.client.connect(manual: true), child: const Text('Retry'))],
+      body: GestureDetector(
+        // A tap outside a field puts the keyboard away.
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: Column(children: [
+          if (!online)
+            MaterialBanner(
+              leading: const Icon(Icons.vpn_lock),
+              content: Text('Connection to ${widget.client.info.displayName} lost. Reconnecting… Your answers are kept.'),
+              actions: [TextButton(onPressed: () => widget.client.connect(manual: true), child: const Text('Retry'))],
+            ),
+          Expanded(
+            child: PageView(
+              controller: _pages,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                for (var i = 0; i < _count; i++) _questionPage(context, i),
+                _reviewPage(context),
+              ],
+            ),
           ),
-        Expanded(
-          child: PageView(
-            controller: _pages,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              for (var i = 0; i < _count; i++) _questionPage(context, i),
-              _reviewPage(context),
-            ],
+          // In the body, not the Scaffold's bottom bar, so it rises with
+          // the keyboard.
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Row(children: [
+                if (_page > 0) TextButton(onPressed: _submitting ? null : () => _go(_page - 1), child: const Text('Back')),
+                const Spacer(),
+                if (_submitting)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 12),
+                    child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  ),
+                if (_onReview)
+                  FilledButton(onPressed: canSubmit ? _submit : null, child: const Text('Submit'))
+                else
+                  FilledButton(onPressed: _valid(_page) ? () => _go(_page + 1) : null, child: const Text('Next')),
+              ]),
+            ),
           ),
-        ),
-      ]),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(children: [
-            if (_page > 0) TextButton(onPressed: _submitting ? null : () => _go(_page - 1), child: const Text('Back')),
-            const Spacer(),
-            if (_submitting)
-              const Padding(
-                padding: EdgeInsets.only(right: 12),
-                child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-              ),
-            if (_onReview)
-              FilledButton(onPressed: canSubmit ? _submit : null, child: const Text('Submit'))
-            else
-              FilledButton(onPressed: _draft.answered(_page) ? () => _go(_page + 1) : null, child: const Text('Next')),
-          ]),
-        ),
+        ]),
       ),
       backgroundColor: cs.surface,
     );
@@ -233,6 +274,7 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
     ]);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         _header(context, q),
         const SizedBox(height: 4),
@@ -245,7 +287,12 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
             groupValue: _draft.single[i],
             onChanged: enabled
                 ? (v) {
-                    setState(() => v == null ? _draft.single.remove(i) : _draft.single[i] = v);
+                    // A choice and a typed answer are exclusive here.
+                    setState(() {
+                      v == null ? _draft.single.remove(i) : _draft.single[i] = v;
+                      _draft.other.remove(i);
+                      _other[i].clear();
+                    });
                     _save();
                   }
                 : (_) {},
@@ -258,11 +305,38 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
           minLines: 1,
           maxLines: 4,
           onChanged: (t) {
-            setState(() => t.isEmpty ? _draft.other.remove(i) : _draft.other[i] = t);
+            setState(() {
+              t.isEmpty ? _draft.other.remove(i) : _draft.other[i] = t;
+              if (!q.multiSelect && t.trim().isNotEmpty) _draft.single.remove(i);
+            });
             _save();
           },
-          decoration: const InputDecoration(labelText: 'Other', hintText: 'Type your own answer', border: OutlineInputBorder()),
+          decoration: InputDecoration(labelText: q.multiSelect ? 'Other' : 'Other (instead of the options above)', hintText: 'Type your own answer', border: const OutlineInputBorder()),
         ),
+        if (!q.multiSelect) ...[
+          const SizedBox(height: 8),
+          if (_notesOpen.contains(i))
+            TextField(
+              controller: _notes[i],
+              enabled: enabled,
+              minLines: 1,
+              maxLines: 4,
+              onChanged: (t) {
+                setState(() => t.isEmpty ? _draft.notes.remove(i) : _draft.notes[i] = t);
+                _save();
+              },
+              decoration: const InputDecoration(labelText: 'Notes', hintText: 'Anything to add to your choice', border: OutlineInputBorder()),
+            )
+          else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: enabled ? () => setState(() => _notesOpen.add(i)) : null,
+                icon: const Icon(Icons.notes, size: 18),
+                label: const Text('Add notes (optional)'),
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -301,6 +375,7 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
     final cs = Theme.of(context).colorScheme;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         for (var i = 0; i < _count; i++) ...[
           if (i > 0) const Divider(height: 24),
@@ -309,7 +384,11 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
             TextButton(onPressed: _submitting ? null : () => _go(i), child: const Text('Edit')),
           ]),
           const SizedBox(height: 4),
-          Text(_summary(i), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: _draft.answered(i) ? cs.onSurface : cs.error)),
+          if (_valid(i)) ...[
+            Text(_summary(i), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+            if (_note(i) case final n?) Padding(padding: const EdgeInsets.only(top: 2), child: Text('Notes: $n', style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant))),
+          ] else
+            Text('Question ${i + 1} needs an answer', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: cs.error)),
         ],
         if (_error != null)
           Padding(
@@ -331,8 +410,8 @@ class _QuestionFlowScreenState extends State<QuestionFlowScreen> {
       final s = _draft.single[i];
       if (s != null && s < q.options.length) labels.add(q.options[s].label);
     }
-    final other = _draft.other[i]?.trim() ?? '';
-    if (other.isNotEmpty) labels.add(other);
-    return labels.isEmpty ? 'Not answered' : labels.join(', ');
+    final other = _text(i);
+    if (other != null) labels.add(other);
+    return labels.join(', ');
   }
 }

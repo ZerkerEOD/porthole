@@ -32,6 +32,27 @@ type Device struct {
 	// expires; empty when push is off for this device.
 	PushGrant    string    `json:"push_grant,omitempty"`
 	PushGrantExp time.Time `json:"push_grant_exp,omitempty"`
+	// Opened is when the device last opened each session (subscribe, pane
+	// or spawn), by key. Notices for a session it never opened are not
+	// pushed. Entries older than openedTTL are dropped on save.
+	Opened map[string]time.Time `json:"opened,omitempty"`
+}
+
+// openedTTL is how long a session stays in a device's opened set.
+const openedTTL = 7 * 24 * time.Hour
+
+// saveDelay coalesces write-behind saves of the opened set.
+const saveDelay = time.Second
+
+func cloneOpened(m map[string]time.Time) map[string]time.Time {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]time.Time, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // Store persists devices and holds pending pairing codes in memory.
@@ -45,6 +66,8 @@ type Store struct {
 	attempts map[string][]time.Time
 	// revoked device ids, drained by the server to close live sockets
 	revoked []string
+	// saveTimer is the pending write-behind save, nil when none is due.
+	saveTimer *time.Timer
 }
 
 type pairingCode struct {
@@ -81,6 +104,11 @@ func OpenStore(stateDir string) (*Store, error) {
 }
 
 func (s *Store) save() error {
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+		s.saveTimer = nil
+	}
+	s.pruneOpened(time.Now())
 	b, err := json.MarshalIndent(struct {
 		Devices []Device `json:"devices"`
 	}{s.devs}, "", "  ")
@@ -92,6 +120,89 @@ func (s *Store) save() error {
 		return err
 	}
 	return os.Rename(tmp, s.path)
+}
+
+// pruneOpened drops opened entries older than openedTTL.
+func (s *Store) pruneOpened(now time.Time) {
+	for i := range s.devs {
+		for k, t := range s.devs[i].Opened {
+			if now.Sub(t) > openedTTL {
+				delete(s.devs[i].Opened, k)
+			}
+		}
+		if len(s.devs[i].Opened) == 0 {
+			s.devs[i].Opened = nil
+		}
+	}
+}
+
+// scheduleSave queues a save within saveDelay; call with the lock held.
+func (s *Store) scheduleSave() {
+	if s.saveTimer != nil {
+		return
+	}
+	s.saveTimer = time.AfterFunc(saveDelay, s.Flush)
+}
+
+// Flush writes a pending write-behind save now.
+func (s *Store) Flush() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.saveTimer == nil {
+		return
+	}
+	_ = s.save()
+}
+
+// MarkOpened records that the device opened the session now.
+func (s *Store) MarkOpened(deviceID, key string) {
+	if key == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.devs {
+		if s.devs[i].ID != deviceID {
+			continue
+		}
+		if s.devs[i].Opened == nil {
+			s.devs[i].Opened = map[string]time.Time{}
+		}
+		s.devs[i].Opened[key] = time.Now()
+		s.scheduleSave()
+		return
+	}
+}
+
+// Opened reports whether the device opened the session within openedTTL.
+func (s *Store) Opened(deviceID, key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range s.devs {
+		if d.ID == deviceID {
+			t, ok := d.Opened[key]
+			return ok && time.Since(t) <= openedTTL
+		}
+	}
+	return false
+}
+
+// ReplaceOpened carries an opened entry from a spawn placeholder to the
+// session that replaced it, on every device.
+func (s *Store) ReplaceOpened(oldKey, newKey string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.devs {
+		t, ok := s.devs[i].Opened[oldKey]
+		if !ok {
+			continue
+		}
+		delete(s.devs[i].Opened, oldKey)
+		if cur, had := s.devs[i].Opened[newKey]; !had || t.After(cur) {
+			s.devs[i].Opened[newKey] = t
+		}
+		s.scheduleSave()
+	}
 }
 
 func hashToken(tok string) string {
@@ -204,6 +315,7 @@ func (s *Store) Devices() []Device {
 	out := make([]Device, len(s.devs))
 	for i, d := range s.devs {
 		d.TokenHash, d.PushSecret, d.PushGrant = "", "", ""
+		d.Opened = cloneOpened(d.Opened)
 		out[i] = d
 	}
 	return out
@@ -230,6 +342,7 @@ func (s *Store) PushTargets() []Device {
 	var out []Device
 	for _, d := range s.devs {
 		if d.PushGrant != "" && d.PushSecret != "" && time.Now().Before(d.PushGrantExp) {
+			d.Opened = cloneOpened(d.Opened)
 			out = append(out, d)
 		}
 	}

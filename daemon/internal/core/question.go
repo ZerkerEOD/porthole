@@ -18,6 +18,9 @@ type Answer struct {
 	Index   *int   `json:"index,omitempty"`
 	Indices []int  `json:"indices,omitempty"`
 	Text    string `json:"text,omitempty"`
+	// Notes is a note on the chosen option of a single select. Accepted
+	// but not yet typed into the dialog; the daemon logs and drops it.
+	Notes string `json:"notes,omitempty"`
 }
 
 // AnswerResult is what question.answer returns.
@@ -110,6 +113,9 @@ func validateAnswers(q *Question, answers []Answer) error {
 			if a.Index != nil {
 				return fmt.Errorf("question %d is multi-select: use indices", i+1)
 			}
+			if a.Notes != "" {
+				return fmt.Errorf("question %d: notes are for a single-select option", i+1)
+			}
 			if len(a.Indices) == 0 && a.Text == "" {
 				return fmt.Errorf("question %d has no selection", i+1)
 			}
@@ -124,8 +130,14 @@ func validateAnswers(q *Question, answers []Answer) error {
 			if len(a.Indices) > 0 {
 				return fmt.Errorf("question %d is single-select: use index", i+1)
 			}
-			if (a.Index == nil) == (a.Text == "") {
-				return fmt.Errorf("question %d needs exactly one of index or text", i+1)
+			if a.Index != nil && a.Text != "" {
+				return fmt.Errorf("question %d: choose an option or type an answer, not both", i+1)
+			}
+			if a.Index == nil && a.Text == "" {
+				return fmt.Errorf("question %d has no answer", i+1)
+			}
+			if a.Notes != "" && a.Index == nil {
+				return fmt.Errorf("question %d: notes go with a chosen option", i+1)
 			}
 			if a.Index != nil && (*a.Index < 0 || *a.Index >= n) {
 				return fmt.Errorf("question %d: index %d out of range", i+1, *a.Index)
@@ -255,6 +267,11 @@ func (r *Registry) AnswerQuestion(ctx context.Context, key, id string, answers [
 			return "done"
 		}
 		return ""
+	}
+	for i, a := range answers {
+		if a.Notes != "" {
+			r.log.Info("question notes ignored", "session", key, "id", id, "question", i+1)
+		}
 	}
 	if q.Recovered {
 		return r.answerRecovered(d, q, answers[0], done)

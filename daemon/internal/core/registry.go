@@ -40,6 +40,7 @@ type Registry struct {
 	answering map[string]bool      // keys whose dialog question.answer is driving
 	listeners []Listener
 	attention []func(kind, key, text string)
+	gate      *AttentionGate
 
 	perm   *permissionBroker
 	cs     *cswap.Client
@@ -88,6 +89,10 @@ func New(cfg *config.Config, log *slog.Logger) *Registry {
 		repos:      append([]string(nil), cfg.Repos...),
 	}
 	r.perm = newPermissionBroker(r)
+	r.gate = newAttentionGate(r.attend, func(key string) bool {
+		s, ok := r.Get(key)
+		return ok && waiting(s.Status)
+	})
 	return r
 }
 
@@ -156,6 +161,9 @@ func (r *Registry) Config() *config.Config { return r.cfg }
 // Permissions exposes the permission broker.
 func (r *Registry) Permissions() *permissionBroker { return r.perm }
 
+// Attention exposes the once-per-wait notice gate the hooks feed.
+func (r *Registry) Attention() *AttentionGate { return r.gate }
+
 // Run scans until ctx is done.
 func (r *Registry) Run(ctx context.Context) {
 	r.scan(ctx)
@@ -222,6 +230,10 @@ func (r *Registry) upsert(s Session) {
 	cp := s
 	r.sessions[s.Key] = &cp
 	r.mu.Unlock()
+	if had && old.Status != s.Status && s.Status == transcript.StatusBusy {
+		// Back to work: the next idle, question or permission is news again.
+		r.gate.Reset(s.Key)
+	}
 	if changed {
 		r.each(func(l Listener) { l.SessionUpserted(s) })
 	}
@@ -232,6 +244,7 @@ func (r *Registry) remove(key string) {
 	_, had := r.sessions[key]
 	delete(r.sessions, key)
 	r.mu.Unlock()
+	r.gate.Forget(key)
 	if had {
 		r.each(func(l Listener) { l.SessionRemoved(key) })
 	}
@@ -779,7 +792,7 @@ func (r *Registry) SetQuestion(key string, items []QuestionItem) *Question {
 	s.Question, s.Status, s.UpdatedAt = q, transcript.StatusWaitingInput, time.Now()
 	r.upsert(s)
 	r.log.Info("question pending", "session", key, "id", q.ID, "questions", len(items))
-	r.attend("input", key, questionText(q))
+	r.gate.Question(key, questionText(q))
 	return q
 }
 
@@ -794,6 +807,8 @@ func (r *Registry) ClearQuestion(key, id string) {
 		s.Status = transcript.StatusBusy
 	}
 	r.upsert(s)
+	// Answered or gone: the next notice starts a new wait.
+	r.gate.Reset(key)
 }
 
 func sameQuestions(a, b []QuestionItem) bool {

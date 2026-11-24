@@ -71,7 +71,7 @@ that source out for a minute.
 
 When the daemon did not see the dialog open (it restarted, or the hook never reached it) it reads the dialog off the terminal instead and sets `recovered: true`. Only the question on screen is visible then, so `questions` holds that one item (its `header` is the dialog's tab label, empty for a single-question dialog; `description` is what the screen shows and `preview` is never set) and `remaining` is how many unanswered questions follow it (absent when 0). Answer it with one `Answer`; on success the next question, if any, is published as a new `question` with a new `id`, and the last answer submits the dialog.
 
-**Answer** `{index?, indices?:[int], text?}`: `index` picks one option of a single-select question, `indices` the options of a multi-select one, `text` fills the free-text row (alone for a single select; with or without `indices` for a multi select). Indices are zero-based positions in `options`.
+**Answer** `{index?, indices?:[int], text?, notes?}`: `index` picks one option of a single-select question, `indices` the options of a multi-select one, `text` fills the free-text row (alone for a single select; with or without `indices` for a multi select). Indices are zero-based positions in `options`. `notes` is a note on the chosen option and is only valid with `index` on a single select; this daemon accepts it but does not yet type it into the dialog (it is dropped with a log line).
 
 **Event** `{seq, type, ts, id?, parent_id?, message_id?, turn_id?, sidechain?, agent_id?, text?, truncated?, tool?:{id,name,input}, result?:{tool_use_id,is_error}, status?, usage?, model?, level?, meta?}`
 
@@ -83,6 +83,10 @@ When the daemon did not see the dialog open (it restarted, or the hook never rea
 **AccountsSnapshot** `{fetched_at, claude?: {fetched_at, raw: <cswap list --json document>, active_email, schema_version}, codex?: {email, rate_limits:{plan, primary:{used_percent, window_minutes, resets_at}, secondary:{...}}, seen_at}}`
 
 **Repo** `{name, path, workspace?, source: workspace|repo|recent, branch?, last_used?, last_provider?}` · **Skill** `{name, description, source: user|project|plugin|builtin, provider, path?}`
+
+## Notifications
+
+Push notices (kinds `permission`, `input`, `done`) go only to devices that are not connected and have opened the session (`session.subscribe`, `pane.subscribe` or `session.spawn` from that device within the last 7 days), or for any session the daemon spawned. Each kind is sent at most once per wait: a wait starts when the session stops working and ends on the next prompt, permission answer, question answer or any return to busy. A turn end sends `done` only if the session is still idle 2 s later; an idle prompt sends `input` only when neither `done` nor `input` went out in that wait.
 
 ## REST (same auth)
 

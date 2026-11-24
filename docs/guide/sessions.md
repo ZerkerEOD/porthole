@@ -92,10 +92,19 @@ sessions keep their old hook set. `porthole uninstall-hooks` removes them
 
 Each session carries a status: `idle`, `busy`, `waiting_permission`,
 `waiting_input`, `exited` or `unknown`. Sessions that need you sort to the top
-of the home screen. With **Notify while connected** on, the app raises a local
-notification for permission prompts and input requests while it is open, and
-on Android also in the background when **Stay connected in the background** is
-on. For notifications while the app is closed, see
+of the home screen.
+
+Notifications follow three rules. They are sent only for sessions you opened
+from the phone: started with **New session**, or viewed in the app at least
+once. They are sent only when the session needs you: a permission prompt, a
+question, or a turn that has finished and is waiting for your next message.
+Each of those sends one notice per wait; the session going busy again resets
+it. Sessions running in your own terminals that you never opened in the app
+stay silent.
+
+With **Notify while connected** on, the app raises those notices itself while
+it is open, and on Android also in the background when **Stay connected in the
+background** is on. For notifications while the app is closed, see
 [Push notifications](push.md).
 
 ## Multiple machines

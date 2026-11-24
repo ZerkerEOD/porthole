@@ -2,6 +2,7 @@ package install
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -37,5 +38,15 @@ func TestBinaryCopiesAndIsIdempotent(t *testing.T) {
 	}
 	if _, err := Binary(dst); err != nil {
 		t.Fatal("re-install of the installed binary should be a no-op:", err)
+	}
+}
+
+// A restart must stop only the daemon, never the agent sessions it spawned.
+func TestServiceKeepsSpawnedSessions(t *testing.T) {
+	if !strings.Contains(Unit, "KillMode=process") {
+		t.Fatal("Unit lacks KillMode=process")
+	}
+	if !strings.Contains(Plist, "AbandonProcessGroup") {
+		t.Fatal("Plist lacks AbandonProcessGroup")
 	}
 }

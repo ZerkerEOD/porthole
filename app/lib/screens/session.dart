@@ -35,6 +35,10 @@ class _SessionScreenState extends State<SessionScreen> {
   bool _loadingMore = false;
   String? _error;
   bool _terminal = false;
+  /// True while a fresh session has no transcript yet; the chat view shows
+  /// a starting notice until the first events land.
+  bool _starting = false;
+  Timer? _retry;
   bool _showThinking = false;
   ScreenSnapshot? _screen;
   String? _paneError;
@@ -148,16 +152,16 @@ class _SessionScreenState extends State<SessionScreen> {
       _results.clear();
       _append(evs, initial: true);
       _hasMore = more;
+      _starting = false;
     } catch (e) {
       final s = _session;
       if (s != null && (s.pending || (s.running && '$e'.contains('no transcript')))) {
-        // Fresh session: nothing written yet. Show the terminal until it is.
+        // Fresh session: nothing written yet. Stay in the chat view with a
+        // starting notice and ask again until the transcript appears.
         _error = null;
-        if (!_terminal && s.controllable) {
-          _terminal = true;
-          _subscribePane();
-        }
-        Timer(const Duration(seconds: 3), () {
+        _starting = true;
+        _retry?.cancel();
+        _retry = Timer(const Duration(seconds: 3), () {
           if (mounted && _events.isEmpty) _subscribe();
         });
       } else {
@@ -306,6 +310,7 @@ class _SessionScreenState extends State<SessionScreen> {
   @override
   void dispose() {
     widget.client.removeListener(_onClient);
+    _retry?.cancel();
     _evSub?.cancel();
     _paneSub?.cancel();
     _replacedSub?.cancel();
@@ -321,8 +326,8 @@ class _SessionScreenState extends State<SessionScreen> {
     final cs = Theme.of(context).colorScheme;
     final controllable = s?.controllable ?? false;
     final perms = widget.client.permissions.values.where((p) => p.sessionKey == _key).toList();
-    final question = _pendingQuestion();
     final client = widget.client;
+    final question = _pendingQuestion();
     final machine = client.info.displayName;
     final route = client.routeNote;
     return Scaffold(
@@ -366,78 +371,83 @@ class _SessionScreenState extends State<SessionScreen> {
           ),
         ],
       ),
-      body: Column(children: [
-        if (client.state != ConnState.connected)
-          MaterialBanner(
-            leading: const Icon(Icons.vpn_lock),
-            content: Text(client.lastError ?? 'Connection to $machine lost. Reconnecting…'),
-            actions: [TextButton(onPressed: () => client.connect(manual: true), child: const Text('Retry'))],
-          )
-        else if (route.isNotEmpty)
-          Material(
-            color: cs.surfaceContainerHigh,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Row(children: [
-                Icon(Icons.alt_route, size: 16, color: cs.onSurfaceVariant),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Connected ${route.startsWith('via') ? '' : 'to $machine · '}$route', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
-              ]),
+      body: GestureDetector(
+        // A tap outside a field puts the keyboard away, in both views.
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: Column(children: [
+          if (client.state != ConnState.connected)
+            MaterialBanner(
+              leading: const Icon(Icons.vpn_lock),
+              content: Text(client.lastError ?? 'Connection to $machine lost. Reconnecting…'),
+              actions: [TextButton(onPressed: () => client.connect(manual: true), child: const Text('Retry'))],
+            )
+          else if (route.isNotEmpty)
+            Material(
+              color: cs.surfaceContainerHigh,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(children: [
+                  Icon(Icons.alt_route, size: 16, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Connected ${route.startsWith('via') ? '' : 'to $machine · '}$route', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
+                ]),
+              ),
             ),
-          ),
-        for (final p in perms) _PermissionCard(client: widget.client, req: p),
-        if (question != null)
-          _QuestionStrip(
-            key: ValueKey('question-$_key-${question.id}'),
-            count: question.questions.length + question.remaining,
-            provider: s?.provider ?? 'claude',
-            hasDraft: _draftFor(question) != null,
-            recovered: question.recovered,
-            onAnswer: () => _openQuestion(question),
-          ),
-        if (question == null && s != null && s.running && s.status == 'waiting_input')
-          Material(
-            color: cs.tertiaryContainer,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
-              child: Row(children: [
-                Icon(Icons.keyboard_outlined, size: 18, color: cs.onTertiaryContainer),
-                const SizedBox(width: 8),
-                Expanded(child: Text(_terminal ? 'Waiting for your answer in the terminal' : 'Waiting for your answer', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onTertiaryContainer, fontWeight: FontWeight.w500))),
-                if (!_terminal && controllable) TextButton(onPressed: _toggleTerminal, child: const Text('Open terminal')),
-              ]),
+          for (final p in perms) _PermissionCard(client: widget.client, req: p),
+          if (question != null)
+            _QuestionStrip(
+              key: ValueKey('question-$_key-${question.id}'),
+              count: question.questions.length + question.remaining,
+              provider: s?.provider ?? 'claude',
+              hasDraft: _draftFor(question) != null,
+              recovered: question.recovered,
+              onAnswer: () => _openQuestion(question),
             ),
-          ),
-        if (s != null && s.running && !controllable)
-          MaterialBanner(
-            leading: const Icon(Icons.visibility_outlined),
-            content: const Text('This session is not running inside tmux, so it is read-only here. Start sessions with `porthole wrap` or from the app to control them.'),
-            actions: const [SizedBox.shrink()],
-          ),
-        Expanded(child: _terminal ? _terminalBody() : _chatBody()),
-        if (!_terminal)
-          Composer(
-            key: ValueKey('composer-$_key'),
-            enabled: controllable,
-            online: client.online,
-            skills: _skills,
-            hint: s?.status == 'waiting_input' ? 'The session is waiting for you' : 'Message ${s?.provider == 'codex' ? 'Codex' : 'Claude'}',
-            initialText: client.composerDrafts[_key] ?? '',
-            onChanged: (t) => client.setComposerDraft(_key, t),
-            onSend: (t) => _sendText(t, enter: true),
-          ),
-        if (_terminal)
-          Composer(
-            key: ValueKey('tcomposer-$_key'),
-            enabled: controllable,
-            online: client.online,
-            skills: _skills,
-            hint: 'Type into the terminal',
-            initialText: client.composerDrafts[_key] ?? '',
-            onChanged: (t) => client.setComposerDraft(_key, t),
-            onSend: (t) => _sendText(t, enter: true),
-          ),
-      ]),
+          if (question == null && s != null && s.running && s.status == 'waiting_input')
+            Material(
+              color: cs.tertiaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+                child: Row(children: [
+                  Icon(Icons.keyboard_outlined, size: 18, color: cs.onTertiaryContainer),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_terminal ? 'Waiting for your answer in the terminal' : 'Waiting for your answer', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onTertiaryContainer, fontWeight: FontWeight.w500))),
+                  if (!_terminal && controllable) TextButton(onPressed: _toggleTerminal, child: const Text('Open terminal')),
+                ]),
+              ),
+            ),
+          if (s != null && s.running && !controllable)
+            MaterialBanner(
+              leading: const Icon(Icons.visibility_outlined),
+              content: const Text('This session is not running inside tmux, so it is read-only here. Start sessions with `porthole wrap` or from the app to control them.'),
+              actions: const [SizedBox.shrink()],
+            ),
+          Expanded(child: _terminal ? _terminalBody() : _chatBody()),
+          if (!_terminal)
+            Composer(
+              key: ValueKey('composer-$_key'),
+              enabled: controllable,
+              online: client.online,
+              skills: _skills,
+              hint: s?.status == 'waiting_input' ? 'The session is waiting for you' : 'Message ${s?.provider == 'codex' ? 'Codex' : 'Claude'}',
+              initialText: client.composerDrafts[_key] ?? '',
+              onChanged: (t) => client.setComposerDraft(_key, t),
+              onSend: (t) => _sendText(t, enter: true),
+            ),
+          if (_terminal)
+            Composer(
+              key: ValueKey('tcomposer-$_key'),
+              enabled: controllable,
+              online: client.online,
+              skills: _skills,
+              hint: 'Type into the terminal',
+              initialText: client.composerDrafts[_key] ?? '',
+              onChanged: (t) => client.setComposerDraft(_key, t),
+              onSend: (t) => _sendText(t, enter: true),
+            ),
+        ]),
+      ),
       floatingActionButton: !_terminal && !_stickToBottom
           ? FloatingActionButton.small(onPressed: () => _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut), child: const Icon(Icons.arrow_downward))
           : null,
@@ -449,6 +459,8 @@ class _SessionScreenState extends State<SessionScreen> {
   Widget _terminalBody() => TerminalView(screen: _screen, error: _paneError, onRetry: _subscribePane, onKeys: _sendKeys, onText: _typeText);
 
   Widget _chatBody() {
+    final s = _session;
+    if (_events.isEmpty && (_starting || (s?.pending ?? false))) return _startingBody(s);
     if (_loading && _events.isEmpty) return const Center(child: CircularProgressIndicator());
     if (_error != null && _events.isEmpty) {
       return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [Text(_error!), const SizedBox(height: 12), FilledButton(onPressed: _subscribe, child: const Text('Retry'))])));
@@ -456,7 +468,6 @@ class _SessionScreenState extends State<SessionScreen> {
     if (_events.isEmpty) {
       return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Nothing in the transcript yet. Send a message to begin, or switch to the terminal view.', textAlign: TextAlign.center)));
     }
-    final s = _session;
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.only(top: 8, bottom: 12),
@@ -474,6 +485,26 @@ class _SessionScreenState extends State<SessionScreen> {
         final e = _events[i - 1];
         return EventTile(event: e, result: e.tool != null ? _results[e.tool!.id] : null, showThinking: _showThinking);
       },
+    );
+  }
+
+  /// A fresh session before its transcript exists: where it runs, and that
+  /// it is on its way.
+  Widget _startingBody(Session? s) {
+    final cs = Theme.of(context).colorScheme;
+    final place = s == null ? '' : (s.repo.isNotEmpty ? s.repo : s.cwd);
+    final where = [if (place.isNotEmpty) place, widget.client.info.displayName].join(' · ');
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.5)),
+          const SizedBox(height: 20),
+          Text('Starting the session…', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          Text(where, textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
+        ]),
+      ),
     );
   }
 }

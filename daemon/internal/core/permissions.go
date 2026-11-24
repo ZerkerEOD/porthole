@@ -73,6 +73,7 @@ func (b *permissionBroker) Ask(ctx context.Context, sessionKey, tool string, inp
 	select {
 	case ans := <-p.done:
 		b.r.each(func(l Listener) { l.PermissionResolved(req.ID, ans) })
+		b.r.gate.Reset(sessionKey)
 		b.r.SetStatus(sessionKey, transcript.StatusBusy)
 		return ans
 	case <-time.After(timeout):

@@ -83,8 +83,15 @@ func TestQuestionLifecycle(t *testing.T) {
 	if s, _ := r.Get("claude:s"); s.Question != nil || s.Status != transcript.StatusBusy {
 		t.Fatalf("ClearQuestion: %+v", s)
 	}
+	// One input per wait: the result reset the wait (second notice), the
+	// third dialog came in the same wait as the second and stayed quiet.
+	if len(notices) != 2 {
+		t.Fatalf("one notice per wait, got %v", notices)
+	}
+	// ClearQuestion ended that wait, so the next dialog is news again.
+	r.SetQuestion("claude:s", items)
 	if len(notices) != 3 {
-		t.Fatalf("one notice per dialog, got %v", notices)
+		t.Fatalf("a new wait after an answer notifies, got %v", notices)
 	}
 }
 
@@ -109,7 +116,7 @@ func TestValidateAnswers(t *testing.T) {
 		{Question: "a", Options: []QuestionOption{{Label: "A"}, {Label: "B"}}},
 		{Question: "b", MultiSelect: true, Options: []QuestionOption{{Label: "P"}, {Label: "Q"}}},
 	}}
-	good := []Answer{{Index: &one}, {Indices: []int{0, 1}}}
+	good := []Answer{{Index: &one, Notes: "why"}, {Indices: []int{0, 1}}}
 	if err := validateAnswers(q, good); err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +127,8 @@ func TestValidateAnswers(t *testing.T) {
 		{{Index: &one}},
 		{{Index: &three}, {Indices: []int{0}}},
 		{{Index: &one, Text: "both"}, {Indices: []int{0}}},
+		{{Text: "typed", Notes: "n"}, {Indices: []int{0}}},
+		{{Index: &one}, {Indices: []int{0}, Notes: "n"}},
 		{{}, {Indices: []int{0}}},
 		{{Indices: []int{0}}, {Indices: []int{0}}},
 		{{Index: &one}, {Index: &one}},

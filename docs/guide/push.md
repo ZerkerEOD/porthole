@@ -76,6 +76,12 @@ push token gone), the app drops the stored grant and requests a fresh one.
 **Re-check** forces a renewal now. **Remove relay** forgets the URL and tells
 every machine to stop pushing.
 
+## What is pushed
+
+The daemon pushes the same notices the app shows live: a permission prompt, a
+question, or a finished turn, once per wait, and only for sessions you opened
+from the phone (see [Status and attention](sessions.md#status-and-attention)).
+
 ## Per-machine control
 
 **Machines → Mute notifications** drops that machine's grant, so it neither

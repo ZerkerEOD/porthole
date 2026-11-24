@@ -236,6 +236,39 @@ void main() {
       await finish(tester, c);
     });
 
+    testWidgets('a fresh session opens in chat with a starting notice, then shows the transcript', (tester) async {
+      const old = 'claude:pending:%5';
+      final c = FakeClient()..failSubscribe = 'no transcript yet';
+      await pumpSession(tester, old, sessions: [{...session(old, pending: true), 'repo': 'porthole'}], client: c);
+      expect(find.byType(TerminalView), findsNothing, reason: 'chat is the default');
+      expect(find.text('Starting the session…'), findsOneWidget);
+      expect(find.text('porthole · desk'), findsOneWidget);
+      expect(find.byType(Composer), findsOneWidget);
+      expect(c.sent('pane.subscribe'), isEmpty, reason: 'the pane is only watched from the terminal view');
+
+      // The real session appears but its transcript is not written yet.
+      c.inject('session.upsert', {...session('claude:real', title: 'Real one'), 'repo': 'porthole'});
+      c.inject('session.replaced', {'old': old, 'new': 'claude:real'});
+      c.inject('session.removed', {'key': old});
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Starting the session…'), findsOneWidget);
+      expect(find.byType(TerminalView), findsNothing);
+
+      // A retry a few seconds later finds it.
+      c.failSubscribe = null;
+      c.transcripts['claude:real'] = [
+        {'seq': 1, 'type': 'user', 'text': 'Fix the flaky test'},
+      ];
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(find.text('Starting the session…'), findsNothing);
+      expect(find.text('Fix the flaky test'), findsOneWidget);
+      expect(find.byType(TerminalView), findsNothing);
+      expect(c.sent('pane.subscribe'), isEmpty);
+      await finish(tester, c);
+    });
+
     testWidgets('a daemon that removes the placeholder first is matched by pane id', (tester) async {
       const old = 'claude:pending:%7';
       final c = await pumpSession(tester, old, sessions: [session(old, pending: true, pane: '%7', tmux: 'ph-y')]);

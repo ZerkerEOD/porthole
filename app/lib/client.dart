@@ -356,6 +356,9 @@ class DaemonClient extends ChangeNotifier {
   final Map<String, QuestionDraft> questionDrafts = {};
   /// Unsent composer text per session key.
   final Map<String, String> composerDrafts = {};
+  /// Sessions this phone has opened or started, so live alerts are raised
+  /// for them only. Persisted with the last-seen cache.
+  final Set<String> openedSessions = {};
   /// Completes once the last-seen cache and the drafts have been read back.
   late final Future<void> restored;
 
@@ -375,6 +378,16 @@ class DaemonClient extends ChangeNotifier {
   Set<String> get subscribedKeys => Set.unmodifiable(_eventKeys);
   Set<String> get subscribedPanes => Set.unmodifiable(_paneKeys);
   bool hasPaneSubscription(String key) => _paneKeys.contains(key);
+  bool isOpened(String key) => openedSessions.contains(key);
+
+  void _markOpened(String key) {
+    if (openedSessions.contains(key)) return;
+    openedSessions.add(key);
+    while (openedSessions.length > 200) {
+      openedSessions.remove(openedSessions.first);
+    }
+    _snapshotSoon();
+  }
 
   WebSocket? _ws;
   int _nextId = 1;
@@ -648,6 +661,7 @@ class DaemonClient extends ChangeNotifier {
         if (old != null && fresh != null) {
           _eventKeys.remove(old);
           _paneKeys.remove(old);
+          if (openedSessions.remove(old)) _markOpened(fresh);
           _replacedCtl.add((old, fresh));
         }
       case 'event':
@@ -723,6 +737,7 @@ class DaemonClient extends ChangeNotifier {
 
   Future<(List<Event>, bool)> subscribe(String key, {int before = 0, int limit = 200}) async {
     _eventKeys.add(key);
+    _markOpened(key);
     try {
       final r = await request('session.subscribe', {'key': key, 'before': before, 'limit': limit});
       return _history(r);
@@ -763,6 +778,7 @@ class DaemonClient extends ChangeNotifier {
 
   Future<ScreenSnapshot?> subscribePane(String key) async {
     _paneKeys.add(key);
+    _markOpened(key);
     try {
       final r = await request('pane.subscribe', {'key': key});
       final d = r['data'] as Map<String, dynamic>?;
@@ -797,7 +813,9 @@ class DaemonClient extends ChangeNotifier {
       if (prompt != null && prompt.isNotEmpty) 'prompt': prompt,
       'permission_mode': ?permissionMode,
     });
-    return Session.fromJson(r['data'] as Map<String, dynamic>);
+    final s = Session.fromJson(r['data'] as Map<String, dynamic>);
+    _markOpened(s.key);
+    return s;
   }
 
   // ---- drafts (SharedPreferences, debounced) ----
@@ -907,7 +925,7 @@ class DaemonClient extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final running = sessions.values.where((s) => s.running && !s.stale).take(50).map((s) => s.toCacheJson()).toList();
-      await prefs.setString(_cacheKey, jsonEncode({'at': (lastSeen ?? DateTime.now()).toIso8601String(), 'sessions': running}));
+      await prefs.setString(_cacheKey, jsonEncode({'at': (lastSeen ?? DateTime.now()).toIso8601String(), 'sessions': running, 'opened': openedSessions.toList()}));
     } catch (_) {}
   }
 
@@ -923,6 +941,7 @@ class DaemonClient extends ChangeNotifier {
         await prefs.remove(_cacheKey);
         return;
       }
+      openedSessions.addAll((j['opened'] as List? ?? []).whereType<String>());
       if (state == ConnState.connected) return; // live data already arrived
       lastSeen ??= at;
       for (final s in (j['sessions'] as List? ?? [])) {
