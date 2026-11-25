@@ -68,25 +68,54 @@ in any other path.
 
 `porthole install` (or `porthole install-hooks`) registers Porthole as a
 Claude Code hook for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `Stop`,
-`Notification`, `PermissionRequest` and `PostModelSwitch`, and as the Codex
+`Notification`, `PermissionRequest`, `PermissionDenied` and `PostModelSwitch`, and as the Codex
 `notify` handler. This is how the daemon learns a session's status (idle,
 busy, waiting for permission, waiting for input, exited) without polling, and
 how a permission prompt reaches the phone.
 
-When Claude Code asks for permission:
+When Claude Code asks for permission, the hook tells the daemon, which decides
+who should answer:
 
-1. The hook sends the request to the daemon and waits.
-2. The daemon shows it to every connected phone, and sends a push if a relay
-   is configured, with the tool name and input.
-3. Tap **Allow** or **Deny**. The answer goes back through the hook, bound to
-   that request's id, so an answer cannot apply to a different prompt.
-4. If nobody answers within `permission_timeout_s` (60 s by default), the hook
-   returns without a decision and Claude Code shows its own prompt in the
-   terminal. The same happens if the daemon is not running.
+1. A phone has the session open: the daemon holds the prompt for
+   `permission_timeout_s` (60 s by default) and shows it on the phone with the
+   tool name and input. Tap **Allow** or **Deny**; the answer goes back
+   through the hook, bound to that request's id.
+2. No phone is watching, but you opened the session from a phone and no
+   terminal is attached to its tmux session: the daemon holds the prompt for
+   `permission_timeout_detached_s` (5 minutes) and sends a push, so you have
+   time to open the app and answer.
+3. A terminal is attached and no phone is watching: the hook returns at once
+   and Claude Code draws its own prompt in the terminal, so the person at the
+   keyboard is not kept waiting.
+
+In the last case, and whenever a held prompt times out, the daemon reads the
+prompt off the terminal screen and shows it in the app with the same choices
+the terminal offers: **Yes**, **Yes, and always allow…**, **Yes, and switch
+to auto mode**, **No**, or for a plan **Yes, and use auto mode**, **Yes,
+manually approve edits**, **Tell Claude what to change**. Tapping one presses
+the matching keys in the terminal. If the daemon is not running, nothing is
+held and the terminal prompt appears as usual.
 
 Hooks take effect for sessions started after they were installed; running
 sessions keep their old hook set. `porthole uninstall-hooks` removes them
 (remove Codex's `notify` line by hand).
+
+## Permission mode
+
+Each Claude session runs in a permission mode: **Manual** (ask before each
+tool), **Accept edits**, **Plan**, **Auto**, and the launch-only **Don't ask**
+and **Bypass**. The mode shows as a chip in the session header and after the
+status in the session list. Tap the chip to change it: the daemon presses
+Shift+Tab in the terminal until the status bar names the mode you chose, the
+same thing you would do at the keyboard. Auto is offered only when the
+account has it; Bypass only when the session was started with it. The mode
+cannot be changed while a prompt or question is open, because Tab means
+something else inside a dialog.
+
+In auto mode, actions the classifier blocks never open a prompt; the session
+header notes the last one ("Auto mode blocked Bash, 2m ago") and the terminal
+lists them under `/permissions`. After several blocks Claude Code pauses auto
+mode and prompts normally, which the app then shows as above.
 
 ## Status and attention
 

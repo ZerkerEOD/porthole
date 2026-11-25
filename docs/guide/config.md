@@ -40,7 +40,8 @@ binary = "tmux"
 session_prefix = "ph"       # spawned sessions are named ph-<provider>-<id>
 
 [hooks]
-permission_timeout_s = 60   # how long a permission prompt waits for the phone
+permission_timeout_s = 60   # how long a permission prompt waits for a phone that is watching
+permission_timeout_detached_s = 300  # ... when no terminal is attached and the phone must answer
 
 [cswap]
 enabled = true              # auto-off when cswap is not on PATH
@@ -82,7 +83,8 @@ relay_url = ""              # empty = push off. The relay the app uses, without 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `permission_timeout_s` | `60` | How long a Claude Code permission prompt waits for an answer from a phone before the terminal prompt takes over. |
+| `permission_timeout_s` | `60` | How long a Claude Code permission prompt waits for a phone that has the session open before the terminal prompt takes over. |
+| `permission_timeout_detached_s` | `300` | The wait when no phone is watching, the session was opened from a phone, and no terminal is attached to its tmux session, so a push notification can be answered. With a terminal attached the prompt goes straight to the terminal; the phone can still answer it from the screen. |
 
 ### `[cswap]`
 

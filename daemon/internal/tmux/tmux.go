@@ -363,6 +363,21 @@ func (c *Client) HasSession(ctx context.Context, name string) bool {
 	return err == nil
 }
 
+// Attached reports whether a terminal is attached to the tmux session, so a
+// person at the keyboard could answer a prompt there. Unknown counts as
+// attached, which keeps the daemon from stalling a terminal it cannot see.
+func (c *Client) Attached(ctx context.Context, name string) bool {
+	if !sessionNameRe.MatchString(name) {
+		return true
+	}
+	out, err := c.run(ctx, "display-message", "-p", "-t", "="+name, "#{session_attached}")
+	if err != nil {
+		return true
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	return err != nil || n > 0
+}
+
 // Resize sets the pane's window size so the TUI matches the phone layout.
 func (c *Client) Resize(ctx context.Context, paneID string, cols, rows int) error {
 	if !ValidPaneID(paneID) {

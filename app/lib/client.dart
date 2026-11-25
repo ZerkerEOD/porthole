@@ -767,6 +767,17 @@ class DaemonClient extends ChangeNotifier {
   Future<void> sendKeys(String key, List<String> keys) => request('session.keys', {'key': key, 'keys': keys});
   Future<void> answerPermission(String id, String behavior) => request('permission.answer', {'id': id, 'behavior': behavior});
 
+  /// Picks option [index] (as the CLI numbers them, from 0) of a prompt read
+  /// from the terminal.
+  Future<void> answerPermissionOption(String id, int index) => request('permission.answer', {'id': id, 'option': index});
+
+  /// Switches a Claude session's permission mode; the daemon presses
+  /// Shift+Tab until the status bar names [mode]. Returns the mode reached.
+  Future<String> setMode(String key, String mode) async {
+    final r = await request('session.mode', {'key': key, 'mode': mode});
+    return (r['data'] as Map?)?['mode'] as String? ?? mode;
+  }
+
   /// Answers a pending question set. The daemon acknowledges the request
   /// and reports in `data` whether the answer landed; a refusal surfaces as
   /// a [StateError] carrying its reason.

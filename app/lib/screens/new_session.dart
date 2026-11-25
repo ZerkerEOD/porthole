@@ -144,9 +144,10 @@ class _NewSessionScreenState extends State<NewSessionScreen> {
                     initialValue: _mode,
                     decoration: const InputDecoration(labelText: 'Permission mode'),
                     items: const [
-                      DropdownMenuItem(value: 'default', child: Text('Default (ask)')),
+                      DropdownMenuItem(value: 'default', child: Text('Manual (ask before each tool)')),
                       DropdownMenuItem(value: 'plan', child: Text('Plan mode')),
                       DropdownMenuItem(value: 'acceptEdits', child: Text('Accept edits')),
+                      DropdownMenuItem(value: 'auto', child: Text('Auto mode')),
                     ],
                     onChanged: (v) => setState(() => _mode = v ?? 'default'),
                   ),

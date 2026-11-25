@@ -42,7 +42,17 @@ type (
 	}
 	PermissionAnswerReq struct {
 		ID       string `json:"id"`
-		Behavior string `json:"behavior"` // allow|deny
+		Behavior string `json:"behavior,omitempty"` // allow|deny
+		// Option picks one of a recovered dialog's options by index instead.
+		Option *int `json:"option,omitempty"`
+	}
+	ModeReq struct {
+		Key  string `json:"key"`
+		Mode string `json:"mode"`
+	}
+	ModeMsg struct {
+		Key  string `json:"key"`
+		Mode string `json:"mode"`
 	}
 	QuestionAnswerReq struct {
 		Key     string        `json:"key"`

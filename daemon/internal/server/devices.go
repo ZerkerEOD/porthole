@@ -187,6 +187,19 @@ func (s *Store) Opened(deviceID, key string) bool {
 	return false
 }
 
+// OpenedAny reports whether any paired device opened the session within
+// openedTTL, so a push notice about it would reach someone.
+func (s *Store) OpenedAny(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range s.devs {
+		if t, ok := d.Opened[key]; ok && time.Since(t) <= openedTTL {
+			return true
+		}
+	}
+	return false
+}
+
 // ReplaceOpened carries an opened entry from a spawn placeholder to the
 // session that replaced it, on every device.
 func (s *Store) ReplaceOpened(oldKey, newKey string) {

@@ -207,7 +207,10 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := l.reg.RegisterFromHook("claude", h.SessionID, h.TranscriptPath, h.Cwd)
 	key := sess.Key
-	l.log.Info("hook", "event", h.HookEventName, "notification_type", h.NotificationType, "tool_name", h.ToolName, "session", h.SessionID)
+	l.log.Info("hook", "event", h.HookEventName, "notification_type", h.NotificationType, "tool_name", h.ToolName, "mode", h.PermissionMode, "session", h.SessionID)
+	if h.PermissionMode != "" {
+		l.reg.SetPermissionMode(key, h.PermissionMode)
+	}
 	switch h.HookEventName {
 	case "SessionStart":
 		l.reg.SetStatus(key, transcript.StatusIdle)
@@ -222,6 +225,9 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 		l.reg.Attention().Stop(key, sess.Title)
 	case "PostModelSwitch":
 		go l.reg.RefreshAccounts(context.Background())
+	case "PermissionDenied":
+		// Auto mode refused the call without a dialog; nothing to answer.
+		l.reg.SetDenied(key, h.ToolName)
 	case "PostToolUse":
 		if h.ToolName == askTool {
 			l.reg.ClearQuestion(key, "")

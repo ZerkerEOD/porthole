@@ -62,6 +62,10 @@ type HooksConfig struct {
 	// PermissionTimeoutS is how long a PermissionRequest hook waits for a phone
 	// before falling back to the terminal prompt.
 	PermissionTimeoutS int `toml:"permission_timeout_s"`
+	// PermissionTimeoutDetachedS applies when no phone is watching, the
+	// session was opened from a phone and no terminal is attached to it: the
+	// hook is held this long so a push can be answered.
+	PermissionTimeoutDetachedS int `toml:"permission_timeout_detached_s"`
 }
 
 // PushConfig is the opt-in relay. Empty RelayURL means push is off.
@@ -92,7 +96,7 @@ func Default() *Config {
 		Workspaces: []string{},
 		Repos:      []string{},
 		Tmux:       TmuxConfig{Binary: "tmux", SessionPrefix: "ph"},
-		Hooks:      HooksConfig{PermissionTimeoutS: 60},
+		Hooks:      HooksConfig{PermissionTimeoutS: 60, PermissionTimeoutDetachedS: 300},
 		Cswap:      CswapConfig{Binary: "cswap", PollIntervalS: 150},
 		Claude:     ProviderConfig{Binary: "claude"},
 		Codex:      ProviderConfig{Binary: "codex"},

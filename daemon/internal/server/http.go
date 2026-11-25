@@ -44,6 +44,7 @@ type Server struct {
 func New(cfg *config.Config, reg *core.Registry, store *Store, log *slog.Logger, allowPublic bool) *Server {
 	h := newHub(reg, log)
 	h.store, h.name = store, cfg.Name
+	reg.Permissions().SetPolicy(store.OpenedAny, reg.Tmux().Attached, time.Duration(cfg.Hooks.PermissionTimeoutDetachedS)*time.Second)
 	if cfg.Push.RelayURL != "" {
 		pc, err := push.NewClient(cfg.Push.RelayURL)
 		if err != nil {

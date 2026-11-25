@@ -316,19 +316,3 @@ func (r *Registry) recoverQuestion(ctx context.Context, key string) *Question {
 	}
 	return r.recoverFromScreen(key, "", scr)
 }
-
-// recoverQuestions runs from the scan: controllable sessions that wait for
-// input without a recorded question get their pane read once per tick.
-func (r *Registry) recoverQuestions(ctx context.Context) {
-	r.mu.RLock()
-	var keys []string
-	for k, s := range r.sessions {
-		if s.Provider == "claude" && s.Running && s.Controllable && s.Question == nil && s.Status == transcript.StatusWaitingInput && !r.answering[k] {
-			keys = append(keys, k)
-		}
-	}
-	r.mu.RUnlock()
-	for _, k := range keys {
-		r.recoverQuestion(ctx, k)
-	}
-}

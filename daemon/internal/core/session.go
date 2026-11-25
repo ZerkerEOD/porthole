@@ -42,6 +42,12 @@ type Session struct {
 	// Question is set while the CLI shows an AskUserQuestion dialog (reported
 	// by the PermissionRequest hook) that has not been answered yet.
 	Question *Question `json:"question,omitempty"`
+	// PermissionMode is the Claude Code mode (default, acceptEdits, plan, auto,
+	// dontAsk, bypassPermissions) from the last hook or the status bar.
+	PermissionMode string `json:"permission_mode,omitempty"`
+	// LastDenied records the most recent action auto mode refused, which the
+	// CLI reports through the PermissionDenied hook without opening a dialog.
+	LastDenied *DeniedTool `json:"last_denied,omitempty"`
 }
 
 // Question is a pending AskUserQuestion call: the tool input as the hook
@@ -90,7 +96,16 @@ type Listener interface {
 	AccountsUpdated(a AccountsSnapshot)
 }
 
-// PermissionRequest is a Claude PermissionRequest hook waiting for an answer.
+// DeniedTool is one action refused by auto mode.
+type DeniedTool struct {
+	Tool string    `json:"tool"`
+	At   time.Time `json:"at"`
+}
+
+// PermissionRequest is a permission prompt the phone can answer: either a
+// Claude PermissionRequest hook held open for a decision, or (Recovered) the
+// dialog the CLI drew in the terminal, read off the pane, with its Options
+// as the CLI numbers them.
 type PermissionRequest struct {
 	ID         string         `json:"id"`
 	SessionKey string         `json:"session_key"`
@@ -98,7 +113,13 @@ type PermissionRequest struct {
 	ToolInput  map[string]any `json:"tool_input,omitempty"`
 	Cwd        string         `json:"cwd,omitempty"`
 	CreatedAt  time.Time      `json:"created_at"`
-	ExpiresAt  time.Time      `json:"expires_at"`
+	ExpiresAt  time.Time      `json:"expires_at,omitzero"`
+	// Recovered requests describe the on-screen dialog instead of ToolInput.
+	Recovered   bool     `json:"recovered,omitempty"`
+	Prompt      string   `json:"prompt,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Detail      string   `json:"detail,omitempty"`
+	Options     []string `json:"options,omitempty"`
 }
 
 // AccountsSnapshot is the current view from the optional account providers.

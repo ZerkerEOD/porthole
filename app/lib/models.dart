@@ -107,9 +107,16 @@ class Session {
         spawned = j['spawned'] as bool? ?? false,
         pending = j['pending'] as bool? ?? false,
         question = j['question'] is Map ? PendingQuestion.fromJson((j['question'] as Map).cast<String, dynamic>()) : null,
+        permissionMode = j['permission_mode'] as String? ?? '',
+        lastDenied = j['last_denied'] is Map ? DeniedTool.fromJson((j['last_denied'] as Map).cast<String, dynamic>()) : null,
         stale = j['_stale'] as bool? ?? false;
 
   final String key, id, provider, title, cwd, repo, branch, status, model, account, lastPrompt;
+  /// Claude Code permission mode (default, acceptEdits, plan, auto, dontAsk,
+  /// bypassPermissions) from the daemon; empty when unknown.
+  final String permissionMode;
+  /// The last action auto mode refused without a prompt, if any.
+  final DeniedTool? lastDenied;
   final bool running, controllable, spawned, pending;
   /// True for sessions restored from the last-seen cache while the machine
   /// is unreachable; replaced by live data on the next hello.
@@ -319,6 +326,9 @@ class ScreenSnapshot {
   final int cursorX, cursorY, width, height;
 }
 
+/// A permission prompt the phone can answer. Hook-held requests carry the
+/// tool input and take Allow/Deny; recovered ones describe the dialog the CLI
+/// drew in the terminal and are answered by picking one of its [options].
 class PermissionRequest {
   PermissionRequest.fromJson(Map<String, dynamic> j)
       : id = j['id'] as String,
@@ -326,10 +336,53 @@ class PermissionRequest {
         toolName = j['tool_name'] as String? ?? '',
         toolInput = j['tool_input'] as Map<String, dynamic>?,
         cwd = j['cwd'] as String? ?? '',
-        expiresAt = DateTime.tryParse(j['expires_at'] as String? ?? '');
-  final String id, sessionKey, toolName, cwd;
+        expiresAt = DateTime.tryParse(j['expires_at'] as String? ?? ''),
+        recovered = j['recovered'] as bool? ?? false,
+        prompt = j['prompt'] as String? ?? '',
+        description = j['description'] as String? ?? '',
+        detail = j['detail'] as String? ?? '',
+        options = [for (final o in (j['options'] as List? ?? const [])) '$o'];
+  final String id, sessionKey, toolName, cwd, prompt, description, detail;
   final Map<String, dynamic>? toolInput;
   final DateTime? expiresAt;
+  final bool recovered;
+  final List<String> options;
+}
+
+/// An action auto mode refused, reported by the PermissionDenied hook.
+class DeniedTool {
+  DeniedTool.fromJson(Map<String, dynamic> j)
+      : tool = j['tool'] as String? ?? '',
+        at = DateTime.tryParse(j['at'] as String? ?? '');
+  final String tool;
+  final DateTime? at;
+}
+
+/// One Claude Code permission mode, as the CLI names it and as the app shows it.
+class PermissionMode {
+  const PermissionMode(this.value, this.label, this.short, this.glyph, this.description);
+  final String value, label, short, glyph, description;
+
+  static const all = [
+    PermissionMode('default', 'Manual', 'Manual', '⏸', 'Claude asks before each tool call that needs permission.'),
+    PermissionMode('acceptEdits', 'Accept edits', 'Edits', '⏵⏵', 'File edits and common file commands run without asking; other tools still prompt.'),
+    PermissionMode('plan', 'Plan', 'Plan', '⏸', 'Read-only: Claude explores and writes a plan, then asks before acting on it.'),
+    PermissionMode('auto', 'Auto', 'Auto', '⏵⏵', 'A classifier approves routine actions and blocks risky ones; blocked actions appear under /permissions.'),
+    PermissionMode('dontAsk', "Don't ask", 'No ask', '⏵⏵', 'Prompts are refused instead of shown. Set only when the session starts.'),
+    PermissionMode('bypassPermissions', 'Bypass', 'Bypass', '⏵⏵', 'No permission checks at all. Available only when the session was started with it.'),
+  ];
+
+  /// Modes Shift+Tab can reach from the phone: the cycle minus the two the
+  /// CLI only sets at launch (bypass joins the cycle when started with it).
+  static List<PermissionMode> switchable(String current) =>
+      [for (final m in all) if (m.value != 'dontAsk' && (m.value != 'bypassPermissions' || current == 'bypassPermissions')) m];
+
+  static PermissionMode? byValue(String v) {
+    for (final m in all) {
+      if (m.value == v) return m;
+    }
+    return null;
+  }
 }
 
 class Skill {

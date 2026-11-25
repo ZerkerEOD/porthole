@@ -484,12 +484,35 @@ func (c *conn) handle(ctx context.Context, m Message) {
 			c.reply(m.ID, false, "bad payload", nil)
 			return
 		}
-		c.log.Info("permission answer", "id", r.ID, "behavior", r.Behavior)
-		if err := reg.Permissions().Answer(r.ID, r.Behavior); err != nil {
+		c.log.Info("permission answer", "id", r.ID, "behavior", r.Behavior, "option", r.Option)
+		var err error
+		if r.Option != nil {
+			if !reg.Permissions().IsRecovered(r.ID) {
+				err = errors.New("options apply to prompts read from the terminal")
+			} else {
+				err = reg.Permissions().AnswerRecovered(ctx, r.ID, *r.Option)
+			}
+		} else {
+			err = reg.Permissions().AnswerAny(ctx, r.ID, r.Behavior)
+		}
+		if err != nil {
 			c.reply(m.ID, false, err.Error(), nil)
 			return
 		}
 		c.reply(m.ID, true, "", nil)
+	case "session.mode":
+		var r ModeReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		c.log.Info("mode request", "session", r.Key, "mode", r.Mode)
+		got, err := reg.SetMode(ctx, r.Key, r.Mode)
+		if err != nil {
+			c.reply(m.ID, false, err.Error(), ModeMsg{Key: r.Key, Mode: got})
+			return
+		}
+		c.reply(m.ID, true, "", ModeMsg{Key: r.Key, Mode: got})
 	case "question.answer":
 		var r QuestionAnswerReq
 		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" || r.ID == "" {

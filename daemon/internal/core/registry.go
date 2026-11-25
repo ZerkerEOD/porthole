@@ -444,7 +444,7 @@ func (r *Registry) scan(ctx context.Context) {
 	for _, k := range pendings {
 		r.remove(k)
 	}
-	r.recoverQuestions(ctx)
+	r.scanScreens(ctx)
 }
 
 // finishLive merges summary data and spawn bookkeeping into a live session
@@ -459,10 +459,10 @@ func (r *Registry) finishLive(s *Session, path string) {
 	if prev != nil {
 		s.Account, s.Title = prev.Account, firstNonEmpty(s.Title, prev.Title)
 		s.Model, s.LastPrompt, s.Branch = prev.Model, prev.LastPrompt, prev.Branch
-		if prev.Status == transcript.StatusWaitingPermission && s.Status == transcript.StatusBusy {
+		if prev.Status == transcript.StatusWaitingPermission && (s.Status == transcript.StatusBusy || r.perm.HasPending(s.Key)) {
 			s.Status = prev.Status
 		}
-		s.Spawned = prev.Spawned
+		s.Spawned, s.PermissionMode, s.LastDenied = prev.Spawned, prev.PermissionMode, prev.LastDenied
 		// The dialog stays until a hook or the transcript says it closed;
 		// the CLI touches the file while one is open.
 		if q := prev.Question; q != nil {
@@ -913,6 +913,9 @@ func (r *Registry) pollPanes(ctx context.Context) {
 		r.mu.Unlock()
 		if changed {
 			r.each(func(l Listener) { l.Pane(t.key, scr) })
+			if m, ok := parseModeLine(scr.Lines); ok {
+				r.SetPermissionMode(t.key, m)
+			}
 		}
 	}
 }
@@ -1027,6 +1030,9 @@ func (r *Registry) Spawn(ctx context.Context, req SpawnRequest) (Session, error)
 	}
 	r.log.Info("spawned", "provider", req.Provider, "dir", dir, "tmux", name, "pane", pane)
 	ph := Session{Key: req.Provider + ":pending:" + pane, ID: "pending", Provider: req.Provider, Cwd: dir, Repo: filepath.Base(dir), Status: transcript.StatusBusy, Running: true, Controllable: true, PaneID: pane, TmuxSession: name, StartedAt: time.Now(), UpdatedAt: time.Now(), Spawned: true, Pending: true, Title: "Starting " + req.Provider + "…"}
+	if req.Provider == "claude" {
+		ph.PermissionMode = firstNonEmpty(req.PermissionMode, ModeDefault)
+	}
 	r.mu.Lock()
 	r.spawned[pane] = spawnInfo{Provider: req.Provider, TmuxSession: name, Dir: dir, At: time.Now()}
 	r.mu.Unlock()
@@ -1310,6 +1316,17 @@ func (r *Registry) SetStatus(key, status string) {
 	if status != transcript.StatusWaitingInput {
 		s.Question = nil
 	}
+	s.UpdatedAt = time.Now()
+	r.upsert(s)
+}
+
+// SetDenied records an action auto mode refused.
+func (r *Registry) SetDenied(key, tool string) {
+	s, ok := r.Get(key)
+	if !ok {
+		return
+	}
+	s.LastDenied = &DeniedTool{Tool: tool, At: time.Now()}
 	s.UpdatedAt = time.Now()
 	r.upsert(s)
 }

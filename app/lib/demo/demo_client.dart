@@ -178,6 +178,13 @@ class DemoDaemonClient extends DaemonClient {
         _pane(fx.claude1);
         _later(const Duration(seconds: 45), _askCodex);
         return {'ok': true};
+      case 'session.mode':
+        final key = p['key'] as String;
+        final mode = p['mode'] as String;
+        // Bypass is not in the demo machines' cycle, like a real account without it.
+        if (mode == 'bypassPermissions') throw StateError('mode bypassPermissions is not in this session\'s cycle (stopped at ${sessions[key]?.permissionMode ?? 'default'})');
+        _upsert(key, {'permission_mode': mode});
+        return {'ok': true, 'data': {'key': key, 'mode': mode}};
       case 'question.answer':
         final answers = (p['answers'] as List?) ?? const [];
         final first = answers.isEmpty ? const <String, dynamic>{} : Map<String, dynamic>.from(answers.first as Map);

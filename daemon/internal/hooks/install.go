@@ -13,7 +13,7 @@ import (
 )
 
 // ClaudeEvents are the hook events Porthole subscribes to.
-var ClaudeEvents = []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification", "PermissionRequest", "PostModelSwitch"}
+var ClaudeEvents = []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification", "PermissionRequest", "PermissionDenied", "PostModelSwitch"}
 
 const marker = "porthole hook"
 

@@ -268,6 +268,38 @@ class _SessionScreenState extends State<SessionScreen> {
 
   Future<void> _sendText(String text, {required bool enter}) => _guard(widget.client.sendText(_key, text, enter: enter));
 
+  /// Opens the mode sheet. A session with a prompt or question open cannot
+  /// change mode (Shift+Tab means something else inside a dialog), and the
+  /// sheet says so instead of trying.
+  Future<void> _pickMode() async {
+    final s = _session;
+    if (s == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!s.controllable) {
+      messenger.showSnackBar(const SnackBar(content: Text('This session is read-only: it is not running inside tmux.')));
+      return;
+    }
+    final busy = s.question != null || widget.client.permissions.values.any((p) => p.sessionKey == _key);
+    if (busy) {
+      messenger.showSnackBar(const SnackBar(content: Text('Answer the open prompt first, then change the mode.')));
+      return;
+    }
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => _ModeSheet(current: s.permissionMode),
+    );
+    if (picked == null || picked == s.permissionMode || !mounted) return;
+    try {
+      final got = await widget.client.setMode(_key, picked);
+      if (got != picked && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text('${PermissionMode.byValue(picked)?.label ?? picked} is not available in this session; it stays in ${PermissionMode.byValue(got)?.label ?? got}.')));
+      }
+    } catch (e) {
+      if (mounted) messenger.showSnackBar(SnackBar(content: Text(_describe(e))));
+    }
+  }
+
   Future<void> _sendKeys(List<String> keys) async {
     try {
       await _guard(widget.client.sendKeys(_key, keys));
@@ -344,6 +376,8 @@ class _SessionScreenState extends State<SessionScreen> {
           ]),
         ]),
         actions: [
+          if (s != null && s.provider == 'claude' && s.running)
+            _ModeButton(mode: s.permissionMode, enabled: controllable, onTap: _pickMode),
           // Leaving the terminal is always allowed; entering it needs a pane.
           IconButton(tooltip: _terminal ? 'Chat view' : 'Terminal view', icon: Icon(_terminal ? Icons.chat_bubble_outline : Icons.terminal), onPressed: controllable || _terminal ? _toggleTerminal : null),
           PopupMenuButton<String>(
@@ -379,7 +413,7 @@ class _SessionScreenState extends State<SessionScreen> {
           if (client.state != ConnState.connected)
             MaterialBanner(
               leading: const Icon(Icons.vpn_lock),
-              content: Text(client.lastError ?? 'Connection to $machine lost. Reconnecting…'),
+              content: Text(client.state == ConnState.connecting ? 'Reconnecting to $machine…' : (client.lastError ?? 'Connection to $machine lost. Reconnecting…')),
               actions: [TextButton(onPressed: () => client.connect(manual: true), child: const Text('Retry'))],
             )
           else if (route.isNotEmpty)
@@ -391,6 +425,18 @@ class _SessionScreenState extends State<SessionScreen> {
                   Icon(Icons.alt_route, size: 16, color: cs.onSurfaceVariant),
                   const SizedBox(width: 8),
                   Expanded(child: Text('Connected ${route.startsWith('via') ? '' : 'to $machine · '}$route', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
+                ]),
+              ),
+            ),
+          if (s?.lastDenied case final d? when d.at != null && DateTime.now().difference(d.at!) < const Duration(minutes: 15))
+            Material(
+              color: cs.surfaceContainerHigh,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(children: [
+                  Icon(Icons.block, size: 16, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Auto mode blocked ${d.tool} ${relAgo(d.at)}. Blocked actions are listed under /permissions in the terminal.', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
                 ]),
               ),
             ),
@@ -493,7 +539,8 @@ class _SessionScreenState extends State<SessionScreen> {
   Widget _startingBody(Session? s) {
     final cs = Theme.of(context).colorScheme;
     final place = s == null ? '' : (s.repo.isNotEmpty ? s.repo : s.cwd);
-    final where = [if (place.isNotEmpty) place, widget.client.info.displayName].join(' · ');
+    final mode = PermissionMode.byValue(s?.permissionMode ?? '');
+    final where = [if (place.isNotEmpty) place, widget.client.info.displayName, if (mode != null) '${mode.label} mode'].join(' · ');
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -544,26 +591,96 @@ class _PermissionCard extends StatelessWidget {
   final PermissionRequest req;
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final input = req.toolInput;
-    final detail = input?['command'] ?? input?['file_path'] ?? input?['url'] ?? input?['description'] ?? '';
-    final description = input?['description'];
+    final detail = req.recovered ? req.detail : '${input?['command'] ?? input?['file_path'] ?? input?['url'] ?? input?['description'] ?? ''}';
+    final description = req.recovered ? req.description : input?['description'];
     final note = description is String && description.isNotEmpty && description != detail ? description : '';
+    final title = req.recovered ? req.toolName : 'Permission: ${req.toolName}';
     return Card(
-      color: Theme.of(context).colorScheme.primaryContainer,
+      color: cs.primaryContainer,
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [Icon(Icons.security, color: Theme.of(context).colorScheme.primary, size: 18), const SizedBox(width: 8), Text('Permission: ${req.toolName}', style: const TextStyle(fontWeight: FontWeight.w600))]),
-          if (detail != '') Padding(padding: const EdgeInsets.only(top: 6), child: SelectableText('$detail', style: const TextStyle(fontFamily: 'monospace', fontSize: 12), minLines: 1, maxLines: 8)),
-          if (note != '') Padding(padding: const EdgeInsets.only(top: 4), child: Text(note, style: Theme.of(context).textTheme.bodySmall)),
-          const SizedBox(height: 8),
-          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-            TextButton(onPressed: () => client.answerPermission(req.id, 'deny'), child: const Text('Deny')),
+          Row(children: [
+            Icon(req.recovered && req.toolName == 'Plan approval' ? Icons.checklist : Icons.security, color: cs.primary, size: 18),
             const SizedBox(width: 8),
-            FilledButton(onPressed: () => client.answerPermission(req.id, 'allow'), child: const Text('Allow')),
+            Expanded(child: Text(title.isEmpty ? 'Permission' : title, style: const TextStyle(fontWeight: FontWeight.w600))),
           ]),
+          if (note != '') Padding(padding: const EdgeInsets.only(top: 4), child: Text(note, style: Theme.of(context).textTheme.bodySmall)),
+          if (detail != '') Padding(padding: const EdgeInsets.only(top: 6), child: SelectableText(detail, style: const TextStyle(fontFamily: 'monospace', fontSize: 12), minLines: 1, maxLines: 8)),
+          if (req.recovered && req.prompt.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(req.prompt, style: const TextStyle(fontWeight: FontWeight.w500))),
+          const SizedBox(height: 8),
+          if (req.recovered)
+            // The CLI's own options, as numbered on screen; the first Yes is
+            // the primary action and a plain No stays quiet.
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (var i = 0; i < req.options.length; i++)
+                if (i == 0)
+                  FilledButton(onPressed: () => client.answerPermissionOption(req.id, i), child: Text(req.options[i]))
+                else if (req.options[i] == 'No')
+                  TextButton(onPressed: () => client.answerPermissionOption(req.id, i), child: const Text('No'))
+                else
+                  OutlinedButton(onPressed: () => client.answerPermissionOption(req.id, i), child: Text(req.options[i], maxLines: 2, overflow: TextOverflow.ellipsis)),
+            ])
+          else
+            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+              TextButton(onPressed: () => client.answerPermission(req.id, 'deny'), child: const Text('Deny')),
+              const SizedBox(width: 8),
+              FilledButton(onPressed: () => client.answerPermission(req.id, 'allow'), child: const Text('Allow')),
+            ]),
         ]),
+      ),
+    );
+  }
+}
+
+/// The permission-mode chip in the session header: tap to change it.
+class _ModeButton extends StatelessWidget {
+  const _ModeButton({required this.mode, required this.enabled, required this.onTap});
+  final String mode;
+  final bool enabled;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    final m = PermissionMode.byValue(mode);
+    final cs = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: m == null ? 'Permission mode' : '${m.label} mode${enabled ? ' · tap to change' : ''}',
+      child: TextButton(
+        key: const ValueKey('mode-button'),
+        onPressed: onTap,
+        style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 36), foregroundColor: enabled ? cs.onSurface : cs.outline),
+        child: Text(m == null ? 'Mode' : '${m.glyph} ${m.short}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+}
+
+/// Lists the modes Shift+Tab can reach, the current one checked.
+class _ModeSheet extends StatelessWidget {
+  const _ModeSheet({required this.current});
+  final String current;
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: Text('Permission mode', style: Theme.of(context).textTheme.titleLarge)),
+          for (final m in PermissionMode.switchable(current))
+            ListTile(
+              leading: Icon(m.value == current ? Icons.radio_button_checked : Icons.radio_button_off, color: m.value == current ? Theme.of(context).colorScheme.primary : null),
+              title: Text('${m.glyph} ${m.label}'),
+              subtitle: Text(m.description),
+              onTap: () => Navigator.of(context).pop(m.value),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Text('Changing the mode presses Shift+Tab in the terminal on your behalf. Auto mode is only offered when this account has it.', style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ],
       ),
     );
   }

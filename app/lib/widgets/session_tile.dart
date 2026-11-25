@@ -21,7 +21,7 @@ class SessionTile extends StatelessWidget {
       subtitle: Row(children: [
         providerBadge(context, s.provider),
         const SizedBox(width: 6),
-        Flexible(child: Text('${s.repo}${s.branch.isNotEmpty ? ' · ${s.branch}' : ''} · ${s.stale ? 'last seen' : statusLabel(s.status)}${machine != null ? ' · $machine' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onSurfaceVariant))),
+        Flexible(child: Text('${s.repo}${s.branch.isNotEmpty ? ' · ${s.branch}' : ''} · ${s.stale ? 'last seen' : statusLabel(s.status)}${_modeTag(s)}${machine != null ? ' · $machine' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onSurfaceVariant))),
       ]),
       trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
         Text(relTime(s.updatedAt), style: Theme.of(context).textTheme.labelSmall),
@@ -30,6 +30,13 @@ class SessionTile extends StatelessWidget {
       onTap: onTap,
     );
     return s.stale ? Opacity(opacity: 0.55, child: tile) : tile;
+  }
+
+  /// " · ⏸ Plan" for a running Claude session whose mode is known.
+  static String _modeTag(Session s) {
+    if (s.stale || !s.running || s.provider != 'claude') return '';
+    final m = PermissionMode.byValue(s.permissionMode);
+    return m == null ? '' : ' · ${m.glyph} ${m.short}';
   }
 }
 
