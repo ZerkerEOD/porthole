@@ -107,17 +107,45 @@ class _AccountCard extends StatelessWidget {
   }
 
   Widget _bar(BuildContext context, String label, Map<String, dynamic> w) {
+    final theme = Theme.of(context);
     final pct = ((w['pct'] as num?) ?? 0).toDouble().clamp(0, 100);
-    final reset = w['countdown'] != null ? 'resets in ${w['countdown']}' : (w['resetsAt'] != null ? 'resets ${relIn(DateTime.tryParse('${w['resetsAt']}'))}' : '');
     final color = pct >= 90 ? crimsonBright : (pct >= 70 ? const Color(0xFFFFB020) : const Color(0xFF3DDC84));
+    final reset = resetText(w);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(children: [
-        SizedBox(width: 56, child: Text(label, style: Theme.of(context).textTheme.labelMedium)),
-        Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: pct / 100, minHeight: 8, color: color))),
-        const SizedBox(width: 8),
-        SizedBox(width: 92, child: Text('${pct.toStringAsFixed(0)}% · $reset', style: Theme.of(context).textTheme.labelSmall, overflow: TextOverflow.ellipsis)),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          SizedBox(width: 56, child: Text(label, style: theme.textTheme.labelMedium)),
+          Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: pct / 100, minHeight: 8, color: color))),
+          const SizedBox(width: 8),
+          SizedBox(width: 40, child: Text('${pct.toStringAsFixed(0)}%', textAlign: TextAlign.right, style: theme.textTheme.labelSmall)),
+        ]),
+        if (reset.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 56, top: 2),
+            child: Text(reset, style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          ),
       ]),
     );
   }
+}
+
+/// Text under a usage bar describing when the window resets.
+///
+/// Prefers `resetsAt`, which the app can count down live, over the
+/// `countdown` string cswap froze when it wrote its cache. The clock time is
+/// appended when the provider gives one so "in 4h 49m" reads as "at 22:10".
+String resetText(Map<String, dynamic> w) {
+  final at = DateTime.tryParse('${w['resetsAt'] ?? ''}');
+  final clock = w['clock'] as String?;
+  String when;
+  if (at != null) {
+    final rel = relIn(at);
+    when = rel == 'now' ? 'reset due now' : 'resets $rel';
+  } else if (w['countdown'] != null) {
+    when = 'resets in ${w['countdown']}';
+  } else {
+    return '';
+  }
+  return clock != null && clock.isNotEmpty ? '$when · $clock' : when;
 }
