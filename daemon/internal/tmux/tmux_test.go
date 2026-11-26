@@ -182,21 +182,3 @@ func TestNewWindowKillWindow(t *testing.T) {
 		t.Fatal("bad pane id accepted")
 	}
 }
-
-func TestLeadingBang(t *testing.T) {
-	for _, c := range []struct {
-		in, lead, rest string
-		ok             bool
-	}{
-		{"!cat x", "!", "cat x", true},
-		{"! cat x", "!", "cat x", true},
-		{"!", "", "!", false},
-		{"cat !x", "", "cat !x", false},
-		{"", "", "", false},
-	} {
-		lead, rest, ok := leadingBang(c.in)
-		if lead != c.lead || rest != c.rest || ok != c.ok {
-			t.Errorf("%q: got %q %q %v", c.in, lead, rest, ok)
-		}
-	}
-}

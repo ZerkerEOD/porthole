@@ -1007,6 +1007,9 @@ func (r *Registry) SendText(ctx context.Context, key, text string, enter bool) e
 		return errors.New("session is not controllable")
 	}
 	r.log.Info("input", "session", key, "bytes", len(text), "enter", enter)
+	if enter && s.Provider == "claude" && strings.HasPrefix(text, "!") && len(text) > 1 && !strings.ContainsAny(text, "\n\r") {
+		return r.sendBang(ctx, key, s.PaneID, text[1:])
+	}
 	return r.tm.SendText(ctx, s.PaneID, text, enter)
 }
 
