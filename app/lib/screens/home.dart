@@ -78,6 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Porthole'),
         actions: [
+          IconButton(tooltip: 'What the icons mean', icon: const Icon(Icons.info_outline), onPressed: () => showLegendSheet(context)),
           IconButton(tooltip: 'Machines', icon: Badge(isLabelVisible: store.daemons.length > 1, label: Text('${store.daemons.length}'), child: const Icon(Icons.devices_other)), onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MachinesScreen()))),
           IconButton(tooltip: 'Settings', icon: const Icon(Icons.settings_outlined), onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
         ],
@@ -153,7 +154,6 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(c.info.displayName, style: TextStyle(fontWeight: FontWeight.w600, color: c.online ? cs.onSurface : cs.onSurfaceVariant)),
         subtitle: MachineStateChip(client: c),
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (c.info.muted) Icon(Icons.notifications_off_outlined, size: 16, color: cs.outline),
           Text(running.isNotEmpty && running.every((s) => s.stale) ? '${running.length} last seen' : '${running.length} running', style: Theme.of(context).textTheme.labelSmall),
           PopupMenuButton<String>(
             onSelected: (v) {
@@ -183,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       if (c.state == ConnState.offline && c.needsRepair)
         Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: Text(c.lastError ?? 'Pair again', style: const TextStyle(color: crimsonBright, fontSize: 12))),
-      for (final s in running) SessionTile(s: s, onTap: () => _open(c, s)),
+      ..._runningRows(c, running),
       if (history.isNotEmpty)
         ListTile(
           dense: true,
@@ -194,6 +194,32 @@ class _HomeScreenState extends State<HomeScreen> {
       if (open) for (final s in history.take(60)) SessionTile(s: s, onTap: () => _open(c, s)),
       const Divider(height: 8),
     ];
+  }
+}
+
+extension on _HomeScreenState {
+  /// Running sessions, with "Needs you / Working / Ready" labels between the
+  /// groups once a machine has more than three, so the amber rows are found
+  /// without reading every line.
+  List<Widget> _runningRows(DaemonClient c, List<Session> running) {
+    if (running.length <= 3) return [for (final s in running) SessionTile(s: s, onTap: () => _open(c, s))];
+    final groups = <(String, List<Session>)>[
+      ('Needs you', running.where((s) => s.needsAttention && !s.stale).toList()),
+      ('Working', running.where((s) => s.status == 'busy' && !s.stale).toList()),
+      ('Ready', running.where((s) => !(s.needsAttention || s.status == 'busy') || s.stale).toList()),
+    ];
+    final out = <Widget>[];
+    for (final (label, items) in groups) {
+      if (items.isEmpty) continue;
+      out.add(Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+        child: Text('$label (${items.length})', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      ));
+      for (final s in items) {
+        out.add(SessionTile(s: s, onTap: () => _open(c, s)));
+      }
+    }
+    return out;
   }
 }
 

@@ -18,7 +18,8 @@ class DaemonInfo {
     this.alias,
     this.muted = false,
     this.autoConnect = true,
-  });
+    List<String>? ignoredHosts,
+  }) : ignoredHosts = ignoredHosts ?? [];
 
   final String id; // local id (uuid)
   String name;
@@ -34,6 +35,12 @@ class DaemonInfo {
   bool muted;
   /// Connect on launch; off for machines that are usually asleep.
   bool autoConnect;
+  /// Addresses the user asked the app never to dial or probe (a long press
+  /// in Manage machines). They stay listed there, struck through.
+  List<String> ignoredHosts;
+
+  /// The addresses the app may dial, in the daemon's order.
+  List<String> get activeHosts => [for (final h in hosts) if (!ignoredHosts.contains(h)) h];
 
   String get displayName => (alias != null && alias!.trim().isNotEmpty) ? alias!.trim() : name;
 
@@ -49,6 +56,7 @@ class DaemonInfo {
         'alias': alias,
         'muted': muted,
         'auto_connect': autoConnect,
+        'ignored_hosts': ignoredHosts,
       };
 
   static DaemonInfo fromJson(Map<String, dynamic> j) => DaemonInfo(
@@ -63,6 +71,7 @@ class DaemonInfo {
         alias: j['alias'] as String?,
         muted: j['muted'] as bool? ?? false,
         autoConnect: j['auto_connect'] as bool? ?? true,
+        ignoredHosts: (j['ignored_hosts'] as List?)?.cast<String>(),
       );
 }
 
@@ -109,6 +118,8 @@ class Session {
         question = j['question'] is Map ? PendingQuestion.fromJson((j['question'] as Map).cast<String, dynamic>()) : null,
         permissionMode = j['permission_mode'] as String? ?? '',
         lastDenied = j['last_denied'] is Map ? DeniedTool.fromJson((j['last_denied'] as Map).cast<String, dynamic>()) : null,
+        agents = [for (final a in (j['agents'] as List? ?? const [])) AgentInfo.fromJson((a as Map).cast<String, dynamic>())],
+        usage = j['usage'] is Map ? (j['usage'] as Map).cast<String, dynamic>() : null,
         stale = j['_stale'] as bool? ?? false;
 
   final String key, id, provider, title, cwd, repo, branch, status, model, account, lastPrompt;
@@ -117,6 +128,14 @@ class Session {
   final String permissionMode;
   /// The last action auto mode refused without a prompt, if any.
   final DeniedTool? lastDenied;
+  /// Subagents of this session, from the daemon.
+  final List<AgentInfo> agents;
+  /// The session's own token totals (input_tokens, output_tokens,
+  /// cache_read_tokens, cache_creation_tokens), without its subagents.
+  final Map<String, dynamic>? usage;
+
+  /// Input + output + cache reads for this session alone, or 0 when unknown.
+  int get totalTokens => usage == null ? 0 : tokensOf(usage!);
   final bool running, controllable, spawned, pending;
   /// True for sessions restored from the last-seen cache while the machine
   /// is unreachable; replaced by live data on the next hello.
@@ -147,6 +166,16 @@ class Session {
 
   String get displayTitle => title.isNotEmpty ? title : (lastPrompt.isNotEmpty ? lastPrompt : id);
   bool get needsAttention => status == 'waiting_permission' || status == 'waiting_input';
+
+  /// Subagents still working, from the daemon's agent list.
+  int get agentsRunning => agents.where((a) => a.running).length;
+
+  /// True when the open permission prompt is the plan approval dialog.
+  bool get planReady => status == 'waiting_permission' && planPending;
+
+  /// Set by the client when a recovered permission prompt for this session
+  /// is the plan approval dialog.
+  bool planPending = false;
 }
 
 class ToolUse {
@@ -347,6 +376,61 @@ class PermissionRequest {
   final DateTime? expiresAt;
   final bool recovered;
   final List<String> options;
+}
+
+/// One subagent (Agent tool run) of a session, read from its own transcript.
+class AgentInfo {
+  AgentInfo.fromJson(Map<String, dynamic> j)
+      : id = j['id'] as String? ?? '',
+        type = j['type'] as String? ?? 'agent',
+        description = j['description'] as String? ?? '',
+        background = j['background'] as bool? ?? false,
+        finished = j['finished'] as bool? ?? false,
+        running = j['running'] as bool? ?? false,
+        startedAt = DateTime.tryParse(j['started_at'] as String? ?? ''),
+        updatedAt = DateTime.tryParse(j['updated_at'] as String? ?? ''),
+        turns = (j['turns'] as num?)?.toInt() ?? 0,
+        toolUses = (j['tool_uses'] as num?)?.toInt() ?? 0,
+        model = j['model'] as String? ?? '',
+        lastText = j['last_text'] as String? ?? '',
+        usage = j['usage'] is Map ? (j['usage'] as Map).cast<String, dynamic>() : const {};
+  final String id, type, description, model, lastText;
+  final bool background, finished, running;
+  final DateTime? startedAt, updatedAt;
+  final int turns, toolUses;
+  final Map<String, dynamic> usage;
+
+  int get inputTokens => (usage['input_tokens'] as num?)?.toInt() ?? 0;
+  int get outputTokens => (usage['output_tokens'] as num?)?.toInt() ?? 0;
+  int get totalTokens => tokensOf(usage);
+
+  /// Wall-clock time the agent has run, to now while running.
+  Duration? get elapsed {
+    final a = startedAt;
+    if (a == null) return null;
+    final end = running || updatedAt == null ? DateTime.now() : updatedAt!;
+    return end.difference(a);
+  }
+}
+
+/// Input + output + cache reads of a usage map from the daemon.
+int tokensOf(Map<String, dynamic> u) {
+  int n(String k) => (u[k] as num?)?.toInt() ?? 0;
+  return n('input_tokens') + n('output_tokens') + n('cache_read_tokens');
+}
+
+/// "45s", "1m 32s", "1h 2m".
+String compactDuration(Duration d) {
+  if (d.inHours >= 1) return '${d.inHours}h ${d.inMinutes % 60}m';
+  if (d.inMinutes >= 1) return '${d.inMinutes}m ${d.inSeconds % 60}s';
+  return '${d.inSeconds}s';
+}
+
+/// "412k", "1.2M", "830".
+String compactTokens(int n) {
+  if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+  if (n >= 1000) return '${(n / 1000).round()}k';
+  return '$n';
 }
 
 /// An action auto mode refused, reported by the PermissionDenied hook.

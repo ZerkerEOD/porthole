@@ -173,6 +173,28 @@ class AppStore extends ChangeNotifier {
     await c.reconnect();
   }
 
+  /// Marks an address as never to be dialled or probed, or lifts that. A
+  /// connection that currently runs through it is redialled elsewhere.
+  Future<void> ignoreHost(DaemonInfo d, String host, bool ignore) async {
+    if (!d.hosts.contains(host)) return;
+    final c = _client(d);
+    if (ignore) {
+      if (!d.ignoredHosts.contains(host)) d.ignoredHosts.add(host);
+      c.hostStatus.remove(host);
+    } else {
+      d.ignoredHosts.remove(host);
+    }
+    await _save();
+    notifyListeners();
+    if (ignore && c.online && d.lastHost == host) {
+      d.lastHost = null;
+      await _save();
+      await c.reconnect();
+    } else if (!ignore && c.online) {
+      unawaited(c.probeHosts());
+    }
+  }
+
   /// Checks every address of every paired machine (Machines screen).
   void probeAll() {
     for (final d in daemons) {

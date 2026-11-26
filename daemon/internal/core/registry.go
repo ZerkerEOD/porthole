@@ -226,7 +226,7 @@ func (r *Registry) Get(key string) (Session, bool) {
 func (r *Registry) upsert(s Session) {
 	r.mu.Lock()
 	old, had := r.sessions[s.Key]
-	changed := !had || *old != s
+	changed := !had || !sameSession(*old, s)
 	cp := s
 	r.sessions[s.Key] = &cp
 	r.mu.Unlock()
@@ -243,6 +243,14 @@ func (r *Registry) remove(key string) {
 	r.mu.Lock()
 	_, had := r.sessions[key]
 	delete(r.sessions, key)
+	// Drop the session's subagent followers with it.
+	prefix := key + "#"
+	for k := range r.followers {
+		if strings.HasPrefix(k, prefix) {
+			delete(r.followers, k)
+			delete(r.subs, k)
+		}
+	}
 	r.mu.Unlock()
 	r.gate.Forget(key)
 	if had {
@@ -439,6 +447,7 @@ func (r *Registry) scan(ctx context.Context) {
 	for _, s := range gone {
 		s.Running, s.Controllable, s.PaneID, s.PID, s.Status = false, false, "", 0, transcript.StatusExited
 		s.Question = nil
+		s.Agents = stopAgents(s.Agents)
 		r.upsert(s)
 	}
 	for _, k := range pendings {
@@ -497,6 +506,9 @@ func (r *Registry) finishLive(s *Session, path string) {
 				s.Cwd, s.Repo = sum.Cwd, filepath.Base(sum.Cwd)
 			}
 		}
+	}
+	if s.Provider == "claude" {
+		r.claudeExtras(s, prev)
 	}
 	if fl != nil {
 		if s.Provider == "codex" && (s.Status == transcript.StatusUnknown) {
@@ -609,6 +621,7 @@ func (r *Registry) indexHistory() {
 			s.Status = transcript.StatusExited
 			if prev, ok := r.Get(key); ok {
 				s.Account, s.Spawned = prev.Account, prev.Spawned
+				s.Agents, s.Usage = stopAgents(prev.Agents), prev.Usage
 			}
 			r.upsert(s)
 		}
@@ -651,6 +664,13 @@ func (r *Registry) Subscribe(key string, before int64, limit int) ([]transcript.
 	}
 	if s.TranscriptPath == "" {
 		return nil, false, errors.New("session has no transcript yet")
+	}
+	if s.Provider == "claude" {
+		// Sessions outside the live scan (history) get their subagents and
+		// usage when opened.
+		cp := s
+		r.claudeExtras(&cp, &s)
+		r.upsert(cp)
 	}
 	r.mu.Lock()
 	f := r.followers[key]

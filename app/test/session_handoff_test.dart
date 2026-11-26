@@ -59,6 +59,9 @@ class FakeDaemon {
   Future<void> stop() => server.close(force: true);
 }
 
+/// Progress rings that are not a session's state glyph.
+final loadingSpinner = find.byWidgetPredicate((w) => w is CircularProgressIndicator && w.key != const ValueKey('state-ring'));
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -424,11 +427,11 @@ void main() {
       c.setState(ConnState.disconnected);
       await tester.pump();
       expect(find.textContaining('waiting'), findsNothing);
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(loadingSpinner, findsOneWidget);
       c.setState(ConnState.connected);
       await tester.pump();
       await tester.pump();
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(loadingSpinner, findsOneWidget);
       expect(c.sent('pane.subscribe').length, 1, reason: 'the screen leaves tracked panes to the hello');
       c.inject('hello', {'name': 'desk', 'version': '1', 'sessions': [session('claude:a')]});
       await tester.pump();
@@ -445,7 +448,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(find.text('pane %5 not found'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(loadingSpinner, findsNothing);
       c.failPane = null;
       await tester.tap(find.text('Retry'));
       await tester.pump();

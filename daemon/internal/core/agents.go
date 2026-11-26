@@ -1,0 +1,159 @@
+package core
+
+import (
+	"errors"
+
+	"github.com/ZerkerEOD/porthole/daemon/internal/provider/claude"
+	"github.com/ZerkerEOD/porthole/daemon/internal/transcript"
+)
+
+// claudeExtras refreshes a Claude session's subagent list and token usage
+// from its transcript. Both reads are cached by file size and mtime, so an
+// unchanged session costs a few stat calls. On a read error the values from
+// prev are kept.
+//
+// A subagent counts as running while it has not reported completion and
+// either its transcript changed in the last 20 seconds or the parent session
+// is running and its meta.json is of the kind that records completion (so
+// a long tool call inside the subagent does not make it look stopped). No
+// subagent runs once the parent has exited.
+func (r *Registry) claudeExtras(s *Session, prev *Session) {
+	if s.TranscriptPath == "" {
+		return
+	}
+	if agents, err := claude.ListAgents(s.TranscriptPath); err == nil {
+		for i := range agents {
+			a := &agents[i]
+			if !s.Running {
+				a.Running = false
+			} else if !a.Finished && a.ReportsFinish {
+				a.Running = true
+			}
+		}
+		s.Agents = agents
+	} else if prev != nil {
+		s.Agents = prev.Agents
+	}
+	if u, err := claude.TranscriptUsage(s.TranscriptPath); err == nil {
+		if u != (transcript.Usage{}) {
+			s.Usage = &u
+		} else {
+			s.Usage = nil
+		}
+	} else if prev != nil {
+		s.Usage = prev.Usage
+	}
+}
+
+// stopAgents returns agents with Running cleared, for a session that exited.
+func stopAgents(agents []transcript.AgentInfo) []transcript.AgentInfo {
+	if len(agents) == 0 {
+		return agents
+	}
+	out := make([]transcript.AgentInfo, len(agents))
+	copy(out, agents)
+	for i := range out {
+		out[i].Running = false
+	}
+	return out
+}
+
+// AgentKey is the follower and subscription key of one subagent transcript.
+func AgentKey(key, agentID string) string { return key + "#" + agentID }
+
+func validAgentID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// agentPath resolves a subagent of a session to its transcript file. Only
+// ids listed for the session are accepted.
+func (r *Registry) agentPath(key, agentID string) (string, error) {
+	s, ok := r.Get(key)
+	if !ok {
+		return "", errors.New("unknown session")
+	}
+	if s.Provider != "claude" || s.TranscriptPath == "" {
+		return "", errors.New("session has no subagents")
+	}
+	if !validAgentID(agentID) {
+		return "", errors.New("unknown agent")
+	}
+	for _, a := range s.Agents {
+		if a.ID == agentID {
+			return a.Path, nil
+		}
+	}
+	// The list on the card may predate the agent: look again.
+	agents, err := claude.ListAgents(s.TranscriptPath)
+	if err != nil {
+		return "", err
+	}
+	for _, a := range agents {
+		if a.ID == agentID {
+			return a.Path, nil
+		}
+	}
+	return "", errors.New("unknown agent " + agentID + " in session " + key)
+}
+
+// agentFollower returns (creating if needed) the follower of a subagent.
+func (r *Registry) agentFollower(key, agentID string, subscribe bool) (*follower, error) {
+	path, err := r.agentPath(key, agentID)
+	if err != nil {
+		return nil, err
+	}
+	k := AgentKey(key, agentID)
+	r.mu.Lock()
+	f := r.followers[k]
+	if f == nil {
+		f = newFollower(k, "claude", path)
+		r.followers[k] = f
+	}
+	if subscribe {
+		r.subs[k]++
+	}
+	r.mu.Unlock()
+	return f, nil
+}
+
+// SubscribeAgent starts streaming one subagent's transcript, read-only. It
+// returns the latest page of events; new events reach listeners through
+// Events with the key AgentKey(key, agentID).
+func (r *Registry) SubscribeAgent(key, agentID string, before int64, limit int) ([]transcript.Event, bool, error) {
+	f, err := r.agentFollower(key, agentID, true)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := f.pump(); err != nil {
+		r.Unsubscribe(AgentKey(key, agentID))
+		return nil, false, err
+	}
+	evs, more := f.page(before, limit)
+	return evs, more, nil
+}
+
+// UnsubscribeAgent drops one subscription to a subagent transcript.
+func (r *Registry) UnsubscribeAgent(key, agentID string) {
+	r.Unsubscribe(AgentKey(key, agentID))
+}
+
+// HistoryAgent pages older events of a subagent transcript.
+func (r *Registry) HistoryAgent(key, agentID string, before int64, limit int) ([]transcript.Event, bool, error) {
+	f, err := r.agentFollower(key, agentID, false)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := f.pump(); err != nil {
+		return nil, false, err
+	}
+	evs, more := f.page(before, limit)
+	return evs, more, nil
+}

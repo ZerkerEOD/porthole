@@ -117,6 +117,47 @@ header notes the last one ("Auto mode blocked Bash, 2m ago") and the terminal
 lists them under `/permissions`. After several blocks Claude Code pauses auto
 mode and prompts normally, which the app then shows as above.
 
+## Subagents
+
+When Claude Code hands work to a subagent (its Agent tool), the CLI writes
+that agent's transcript to its own file next to the session's. The daemon
+reads those files, so a session with subagents shows a strip under its title:
+"3 agents · 2 working · 190k tokens". Tap it for the list: each agent's type,
+what it was asked to do, how long it has run, tokens in and out, tool uses and
+its last line of output. Open one to read its transcript as it is written.
+
+Subagents run inside the session's own process and have no input of their
+own, so the agent view is read-only. To steer one, message the session;
+**Message the session** on the agent view puts an opening line in the
+composer for you. When a background agent finishes, the session's chat shows
+one line with its summary, tokens, tool uses and duration.
+
+The session's own token total (without its agents) appears at the end of the
+header line once the daemon has read it.
+
+## Reading the states
+
+A session row shows a glyph and a word for what the agent is doing. The
+colours mean one thing each: blue is working, amber is waiting for you,
+green is ready, grey is over, and crimson is reserved for errors.
+
+| Glyph | Label | Meaning |
+|---|---|---|
+| spinning ring | working | The CLI is busy. With subagents the label counts them. |
+| filled question mark | needs your answer | A multiple-choice question is open. |
+| shield | needs approval | A permission prompt is waiting. |
+| checklist | plan ready to approve | Plan mode has written a plan and asks how to proceed. |
+| speech bubble | waiting for you | The turn ended; the session waits for your next message. |
+| check | ready | Idle, nothing pending. |
+| stop | ended | The CLI exited. **Resume in tmux…** restarts it. |
+| eye (trailing) | read-only | Not inside tmux, so the app can watch but not type. |
+| crimson corner mark | blocked … | Auto mode refused an action in the last 15 minutes. |
+
+Machines use a different set: a link for online, a spinning sync for
+connecting or reconnecting, a broken link for offline (crimson when every
+address failed its last check), and a warning sign for "pair again". The
+same table is in the app under the **(i)** button on the home screen.
+
 ## Status and attention
 
 Each session carries a status: `idle`, `busy`, `waiting_permission`,

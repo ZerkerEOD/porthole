@@ -59,7 +59,24 @@ type (
 		ID      string        `json:"id"`
 		Answers []core.Answer `json:"answers"`
 	}
-	HistoryReq = SubscribeReq
+	// HistoryReq pages a session transcript, or with AgentID one of its
+	// subagent transcripts.
+	HistoryReq struct {
+		Key     string `json:"key"`
+		AgentID string `json:"agent_id,omitempty"`
+		Before  int64  `json:"before,omitempty"`
+		Limit   int    `json:"limit,omitempty"`
+	}
+	AgentSubscribeReq struct {
+		Key     string `json:"key"`
+		AgentID string `json:"agent_id"`
+		Before  int64  `json:"before,omitempty"`
+		Limit   int    `json:"limit,omitempty"`
+	}
+	AgentKeyReq struct {
+		Key     string `json:"key"`
+		AgentID string `json:"agent_id"`
+	}
 )
 
 // Server -> client payloads.
@@ -81,8 +98,14 @@ type (
 	}
 	HistoryMsg struct {
 		Key     string             `json:"key"`
+		AgentID string             `json:"agent_id,omitempty"`
 		Events  []transcript.Event `json:"events"`
 		HasMore bool               `json:"has_more"`
+	}
+	AgentEventsMsg struct {
+		Key     string             `json:"key"`
+		AgentID string             `json:"agent_id"`
+		Events  []transcript.Event `json:"events"`
 	}
 	PaneMsg struct {
 		Key    string       `json:"key"`

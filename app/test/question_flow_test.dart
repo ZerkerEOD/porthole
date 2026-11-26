@@ -48,6 +48,9 @@ Future<void> finishFlow(WidgetTester tester, FakeClient c) async {
   c.close();
 }
 
+/// Progress rings that are not a session's state glyph.
+final loadingSpinner = find.byWidgetPredicate((w) => w is CircularProgressIndicator && w.key != const ValueKey('state-ring'));
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -141,10 +144,10 @@ void main() {
       await tester.pump();
       await tester.tap(next);
       await tester.pump();
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(loadingSpinner, findsNothing);
       await tester.tap(submit);
       await tester.pump();
-      expect(find.byType(CircularProgressIndicator), findsOneWidget, reason: 'spinner while waiting');
+      expect(loadingSpinner, findsOneWidget, reason: 'spinner while waiting');
       await tester.pumpAndSettle();
       expect(c.sent('question.answer'), [
         {'key': key, 'id': 'toolu_q1', 'answers': [{'index': 1}, {'text': 'Tomorrow'}]},

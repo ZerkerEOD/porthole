@@ -80,6 +80,8 @@ class FakeClient extends DaemonClient {
       case 'pane.subscribe':
         if (failPane != null) throw StateError(failPane!);
         return {'ok': true, 'data': {'screen': {'lines': ['\$ waiting'], 'width': 80, 'height': 24}}};
+      case 'agent.subscribe':
+        return {'ok': true, 'data': {'key': p['key'], 'agent_id': p['agent_id'], 'events': const [], 'has_more': false}};
       case 'skills.list':
         return {'ok': true, 'data': const []};
       case 'question.answer':

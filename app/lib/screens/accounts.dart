@@ -3,13 +3,27 @@ import 'package:flutter/material.dart';
 import '../client.dart';
 import '../main.dart';
 
+/// Opens the Accounts & usage page for one machine.
 Future<void> showAccountsSheet(BuildContext context, DaemonClient client) {
-  return showModalBottomSheet(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (_) => ListenableBuilder(listenable: client, builder: (context, _) => _AccountsBody(client: client)),
-  );
+  return Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountsScreen(client: client)));
+}
+
+/// Account usage for one machine: a page with a back button, refreshed by
+/// pulling down.
+class AccountsScreen extends StatelessWidget {
+  const AccountsScreen({super.key, required this.client});
+  final DaemonClient client;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Accounts & usage · ${client.info.displayName}')),
+      body: RefreshIndicator(
+        onRefresh: () => client.refreshAccounts().catchError((_) {}),
+        child: ListenableBuilder(listenable: client, builder: (context, _) => _AccountsBody(client: client)),
+      ),
+    );
+  }
 }
 
 class _AccountsBody extends StatelessWidget {
@@ -63,9 +77,8 @@ class _AccountsBody extends StatelessWidget {
     }
     return SafeArea(
       child: ListView(
-        shrinkWrap: true,
+        physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: Text('Accounts & usage', style: Theme.of(context).textTheme.titleLarge)),
           ...rows,
           if (fetched != null) Padding(padding: const EdgeInsets.all(16), child: Text('Refreshed ${relAgo(fetched)}. Usage numbers come from each tool\'s own cache; Porthole never calls provider APIs.', style: Theme.of(context).textTheme.bodySmall)),
         ],

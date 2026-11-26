@@ -62,6 +62,8 @@ List<Map<String, dynamic>> sessions([String machine = demoDaemonId]) {
         'branch': 'ci/module-cache',
         'status': 'busy',
         'permission_mode': 'acceptEdits',
+        'usage': {'input_tokens': 182000, 'output_tokens': 9400, 'cache_read_tokens': 410000},
+        'agents': demoAgents(),
         'running': true,
         'controllable': true,
         'pane_id': '%2',
@@ -206,6 +208,58 @@ Map<String, dynamic> _ev(int seq, String type, Duration ago, {String? text, Map<
       'result': ?result,
       'level': ?level,
     };
+
+/// Two subagents of build-box's Claude session: one still working, one done.
+List<Map<String, dynamic>> demoAgents() => [
+      {
+        'id': 'agent-demo-1',
+        'type': 'Explore',
+        'description': 'Find every place the CI config downloads modules',
+        'background': true,
+        'finished': true,
+        'running': false,
+        'started_at': _iso(const Duration(minutes: 6)),
+        'updated_at': _iso(const Duration(minutes: 4)),
+        'turns': 5,
+        'tool_uses': 9,
+        'usage': {'input_tokens': 41000, 'output_tokens': 1800, 'cache_read_tokens': 96000},
+        'model': 'claude-sonnet-5-5',
+        'last_text': 'Three jobs download modules: build, lint and the nightly fuzz run. Only build has a cache step.',
+      },
+      {
+        'id': 'agent-demo-2',
+        'type': 'general-purpose',
+        'description': 'Add actions/cache for the Go module directory to the lint job',
+        'background': true,
+        'finished': false,
+        'running': true,
+        'started_at': _iso(const Duration(minutes: 3)),
+        'updated_at': _iso(const Duration(seconds: 4)),
+        'turns': 3,
+        'tool_uses': 4,
+        'usage': {'input_tokens': 22000, 'output_tokens': 900, 'cache_read_tokens': 51000},
+        'model': 'claude-sonnet-5-5',
+        'last_text': 'Editing .github/workflows/ci.yml: adding the cache step before go vet.',
+      },
+    ];
+
+/// The transcript of a demo subagent.
+List<Map<String, dynamic>> agentTranscript(String agentId) {
+  if (agentId == 'agent-demo-1') {
+    return [
+      _ev(1, 'user', const Duration(minutes: 6), text: 'Find every place the CI config downloads Go modules. Report file and job names only.'),
+      _ev(2, 'tool.use', const Duration(minutes: 5, seconds: 40), tool: {'id': 'tu-a1', 'name': 'Grep', 'input': {'pattern': 'go mod download', 'path': '.github'}}),
+      _ev(3, 'tool.result', const Duration(minutes: 5, seconds: 38), result: {'tool_use_id': 'tu-a1', 'is_error': false}, text: '.github/workflows/ci.yml:24\n.github/workflows/ci.yml:51\n.github/workflows/nightly.yml:18'),
+      _ev(4, 'assistant.text', const Duration(minutes: 4), text: 'Three jobs download modules: build, lint and the nightly fuzz run. Only build has a cache step.'),
+    ];
+  }
+  return [
+    _ev(1, 'user', const Duration(minutes: 3), text: 'Add actions/cache for the Go module directory to the lint job in .github/workflows/ci.yml, matching the build job.'),
+    _ev(2, 'tool.use', const Duration(minutes: 2, seconds: 30), tool: {'id': 'tu-b1', 'name': 'Read', 'input': {'file_path': '.github/workflows/ci.yml'}}),
+    _ev(3, 'tool.result', const Duration(minutes: 2, seconds: 29), result: {'tool_use_id': 'tu-b1', 'is_error': false}, text: '(62 lines)'),
+    _ev(4, 'assistant.text', const Duration(seconds: 4), text: 'Editing .github/workflows/ci.yml: adding the cache step before go vet.'),
+  ];
+}
 
 /// The transcript page returned by `session.subscribe`.
 List<Map<String, dynamic>> transcript(String key) {

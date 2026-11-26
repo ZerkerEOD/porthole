@@ -364,6 +364,10 @@ class DaemonClient extends ChangeNotifier {
 
   /// Per-session event streams and pane streams.
   final _eventCtl = StreamController<(String, List<Event>)>.broadcast();
+  final _agentEventCtl = StreamController<(String, String, List<Event>)>.broadcast();
+
+  /// Live events of subscribed subagents: (session key, agent id, events).
+  Stream<(String, String, List<Event>)> get agentEvents => _agentEventCtl.stream;
   final _paneCtl = StreamController<(String, ScreenSnapshot)>.broadcast();
   /// `(old, new)` when a spawn placeholder becomes a real session.
   final _replacedCtl = StreamController<(String, String)>.broadcast();
@@ -403,12 +407,16 @@ class DaemonClient extends ChangeNotifier {
   /// How the connection is routed, for the machine subtitle: "via HOST"
   /// when a fallback address carries it, and any other address whose last
   /// check failed. Empty when offline or when there is nothing to say.
+  /// Route detail for the Machines page only: which address carries the
+  /// connection when it is not the first, and which others failed their last
+  /// check. Ignored addresses are left out.
   String get routeNote {
     if (!online) return '';
     final via = info.lastHost;
+    final hosts = info.activeHosts;
     final parts = <String>[];
-    if (via != null && info.hosts.isNotEmpty && via != info.hosts.first) parts.add('via $via');
-    for (final h in info.hosts) {
+    if (via != null && hosts.isNotEmpty && via != hosts.first) parts.add('via $via');
+    for (final h in hosts) {
       if (h == via) continue;
       final st = hostStatus[h];
       if (st != null && st.reachable == false) parts.add('$h unreachable (${st.error ?? 'failed'})');
@@ -416,8 +424,16 @@ class DaemonClient extends ChangeNotifier {
     return parts.join(' · ');
   }
 
-  /// The preferred address first, then the rest in the daemon's order.
-  List<String> get orderedHosts => mergeHosts([?info.lastHost], info.hosts);
+  /// True when the last attempt dialled every address the app may use and
+  /// none answered.
+  bool get allUnreachable {
+    final hosts = info.activeHosts;
+    return !online && hosts.isNotEmpty && hosts.every((h) => hostStatus[h]?.reachable == false);
+  }
+
+  /// The preferred address first, then the rest in the daemon's order,
+  /// without the ignored ones.
+  List<String> get orderedHosts => [for (final h in mergeHosts([?info.lastHost], info.hosts)) if (!info.ignoredHosts.contains(h)) h];
 
   Future<WebSocket> _connectHost(String host) {
     final connector = _connector;
@@ -523,7 +539,7 @@ class DaemonClient extends ChangeNotifier {
     if (isDemo || _closed || _probing || info.hosts.isEmpty) return;
     _probing = true;
     try {
-      await Future.wait([for (final h in mergeHosts(info.hosts, const [])) _probeOne(h)]);
+      await Future.wait([for (final h in info.activeHosts) _probeOne(h)]);
     } finally {
       _probing = false;
     }
@@ -623,13 +639,22 @@ class DaemonClient extends ChangeNotifier {
         permissions.clear();
         for (final pr in (p['permissions'] as List? ?? [])) {
           final r = PermissionRequest.fromJson(pr as Map<String, dynamic>);
+          _markPlan(r);
           permissions[r.id] = r;
         }
         accounts = p['accounts'] as Map<String, dynamic>?;
+        // The daemon's advertised addresses replace the stored list, so an
+        // address it stopped binding disappears instead of being probed
+        // forever. The one that carries this connection is kept regardless.
         final fresh = (p['hosts'] as List?)?.whereType<String>().toList();
         if (fresh != null && fresh.isNotEmpty) {
-          final merged = mergeHosts(fresh, info.hosts);
-          if (!listEquals(merged, info.hosts)) info.hosts = merged;
+          final merged = mergeHosts(fresh, [?info.lastHost]);
+          if (!listEquals(merged, info.hosts)) {
+            for (final h in info.hosts) {
+              if (!merged.contains(h)) hostStatus.remove(h);
+            }
+            info.hosts = merged;
+          }
         }
         lastSeen = DateTime.now();
         notifyListeners();
@@ -670,8 +695,12 @@ class DaemonClient extends ChangeNotifier {
       case 'pane.snapshot':
         final p = payload as Map<String, dynamic>;
         _paneCtl.add((p['key'] as String, ScreenSnapshot.fromJson(p['screen'] as Map<String, dynamic>)));
+      case 'agent.events':
+        final ap = payload as Map<String, dynamic>;
+        _agentEventCtl.add((ap['key'] as String, ap['agent_id'] as String, (ap['events'] as List).map((e) => Event.fromJson(e as Map<String, dynamic>)).toList()));
       case 'permission.pending':
         final r = PermissionRequest.fromJson(payload as Map<String, dynamic>);
+        _markPlan(r);
         permissions[r.id] = r;
         notifyListeners();
       case 'permission.resolved':
@@ -765,6 +794,37 @@ class DaemonClient extends ChangeNotifier {
 
   Future<void> sendText(String key, String text, {bool enter = true}) => request('session.input', {'key': key, 'text': text, 'enter': enter});
   Future<void> sendKeys(String key, List<String> keys) => request('session.keys', {'key': key, 'keys': keys});
+  /// Flags the session whose recovered prompt is the plan approval dialog,
+  /// so its state reads "plan ready" instead of "needs approval".
+  void _markPlan(PermissionRequest r) {
+    final s = sessions[r.sessionKey];
+    if (s != null) s.planPending = r.recovered && r.toolName == 'Plan approval';
+  }
+
+  /// Opens a subagent's transcript (read-only) and starts its live stream.
+  Future<(List<Event>, bool)> subscribeAgent(String key, String agentId, {int before = 0, int limit = 200}) async {
+    final r = await request('agent.subscribe', {'key': key, 'agent_id': agentId, 'before': before, 'limit': limit});
+    final d = r['data'] as Map<String, dynamic>;
+    return ((d['events'] as List? ?? const []).map((e) => Event.fromJson(e as Map<String, dynamic>)).toList(), d['has_more'] as bool? ?? false);
+  }
+
+  Future<void> unsubscribeAgent(String key, String agentId) => request('agent.unsubscribe', {'key': key, 'agent_id': agentId}).catchError((_) => <String, dynamic>{});
+
+  Future<(List<Event>, bool)> agentHistory(String key, String agentId, {required int before, int limit = 200}) async {
+    final r = await request('history.page', {'key': key, 'agent_id': agentId, 'before': before, 'limit': limit});
+    final d = r['data'] as Map<String, dynamic>;
+    return ((d['events'] as List? ?? const []).map((e) => Event.fromJson(e as Map<String, dynamic>)).toList(), d['has_more'] as bool? ?? false);
+  }
+
+  /// Asks the daemon for the current account snapshot.
+  Future<void> refreshAccounts() async {
+    final r = await request('accounts.get');
+    if (r['data'] is Map) {
+      accounts = (r['data'] as Map).cast<String, dynamic>();
+      notifyListeners();
+    }
+  }
+
   Future<void> answerPermission(String id, String behavior) => request('permission.answer', {'id': id, 'behavior': behavior});
 
   /// Picks option [index] (as the CLI numbers them, from 0) of a prompt read
@@ -978,6 +1038,7 @@ class DaemonClient extends ChangeNotifier {
     _reconnect?.cancel();
     _ws?.close();
     _eventCtl.close();
+    _agentEventCtl.close();
     _paneCtl.close();
     _replacedCtl.close();
   }

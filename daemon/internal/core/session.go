@@ -4,6 +4,7 @@
 package core
 
 import (
+	"reflect"
 	"time"
 
 	"github.com/ZerkerEOD/porthole/daemon/internal/tmux"
@@ -48,7 +49,17 @@ type Session struct {
 	// LastDenied records the most recent action auto mode refused, which the
 	// CLI reports through the PermissionDenied hook without opening a dialog.
 	LastDenied *DeniedTool `json:"last_denied,omitempty"`
+	// Agents lists the subagent runs (Claude Code Agent tool calls) of the
+	// session, oldest first.
+	Agents []transcript.AgentInfo `json:"agents,omitempty"`
+	// Usage is the session's own token usage (subagents excluded), summed
+	// over its assistant messages.
+	Usage *transcript.Usage `json:"usage,omitempty"`
 }
+
+// sameSession reports whether a and b hold the same values. Session holds
+// slices, so it cannot be compared with ==.
+func sameSession(a, b Session) bool { return reflect.DeepEqual(a, b) }
 
 // Question is a pending AskUserQuestion call: the tool input as the hook
 // reported it plus an opaque id, which question.answer echoes back.

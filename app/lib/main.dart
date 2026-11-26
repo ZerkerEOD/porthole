@@ -8,6 +8,7 @@ import 'push.dart';
 import 'screens/home.dart';
 import 'screens/session.dart';
 import 'screens/splash.dart';
+import 'models.dart';
 import 'store.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -194,22 +195,140 @@ String relTime(DateTime? t) {
   return '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
 }
 
+/// The four state colours. Crimson is kept for errors only.
+const workingBlue = Color(0xFF4FA3FF);
+const attentionAmber = Color(0xFFFFB020);
+const readyGreen = Color(0xFF3DDC84);
+
 Color statusColor(BuildContext context, String status) {
   final cs = Theme.of(context).colorScheme;
   switch (status) {
     case 'busy':
-      return crimsonBright;
+      return workingBlue;
     case 'idle':
-      return const Color(0xFF3DDC84);
+      return readyGreen;
     case 'waiting_permission':
-      return const Color(0xFFFFB020);
     case 'waiting_input':
-      return const Color(0xFFFFD54F);
+      return attentionAmber;
     case 'exited':
       return cs.outline;
     default:
       return cs.outlineVariant;
   }
+}
+
+/// What a session row says about the agent, derived from every field the
+/// daemon sends rather than the status string alone.
+class SessionState {
+  const SessionState(this.label, this.icon, this.color, {this.spinning = false, this.attention = false});
+  final String label;
+  final IconData icon;
+  final Color color;
+  /// A ring instead of the icon: something is in progress.
+  final bool spinning;
+  /// The person is being waited on.
+  final bool attention;
+}
+
+SessionState sessionState(BuildContext context, Session? s) {
+  final cs = Theme.of(context).colorScheme;
+  if (s == null) return SessionState('unknown', Icons.help_outline, cs.outlineVariant);
+  if (s.pending) return SessionState('starting', Icons.hourglass_empty, cs.outline, spinning: true);
+  switch (s.status) {
+    case 'busy':
+      final n = s.agentsRunning;
+      return SessionState(n > 0 ? 'working · $n ${n == 1 ? 'agent' : 'agents'}' : 'working', Icons.autorenew, workingBlue, spinning: true);
+    case 'waiting_input':
+      return s.question != null
+          ? const SessionState('needs your answer', Icons.help, attentionAmber, attention: true)
+          : const SessionState('waiting for you', Icons.chat_bubble, attentionAmber, attention: true);
+    case 'waiting_permission':
+      return s.planReady
+          ? const SessionState('plan ready to approve', Icons.checklist, attentionAmber, attention: true)
+          : const SessionState('needs approval', Icons.security, attentionAmber, attention: true);
+    case 'idle':
+      return const SessionState('ready', Icons.check_circle, readyGreen);
+    case 'exited':
+      return SessionState('ended', Icons.stop_circle_outlined, cs.outline);
+    default:
+      return SessionState(s.status, Icons.help_outline, cs.outlineVariant);
+  }
+}
+
+/// The state label with the extras a row should carry: read-only, a recent
+/// auto-mode block, last seen.
+String sessionStateLabel(BuildContext context, Session s) {
+  final base = sessionState(context, s).label;
+  if (s.stale) return 'last seen ${relAgo(s.updatedAt)}';
+  final parts = [base];
+  if (s.running && !s.controllable) parts.add('read-only');
+  final d = s.lastDenied;
+  if (d != null && d.at != null && DateTime.now().difference(d.at!) < const Duration(minutes: 15)) parts.add('blocked ${d.tool}');
+  return parts.join(' · ');
+}
+
+/// The state glyph for a session: an icon, or a ring while something is in
+/// progress, with a crimson corner mark after an auto-mode block. Faded when
+/// the session is only known from the last connection.
+class StatusGlyph extends StatelessWidget {
+  const StatusGlyph(this.session, {super.key, this.size = 16});
+  final Session? session;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final st = sessionState(context, session);
+    final s = session;
+    final denied = s?.lastDenied != null && s!.lastDenied!.at != null && DateTime.now().difference(s.lastDenied!.at!) < const Duration(minutes: 15);
+    Widget core = st.spinning
+        ? SizedBox(width: size * 0.8, height: size * 0.8, child: CircularProgressIndicator(key: const ValueKey('state-ring'), strokeWidth: size / 8, color: st.color))
+        : Icon(st.icon, size: size, color: st.color);
+    core = SizedBox(width: size, height: size, child: Center(child: core));
+    if (denied) {
+      core = Stack(clipBehavior: Clip.none, children: [
+        core,
+        Positioned(right: -1, bottom: -1, child: Container(width: size / 3, height: size / 3, decoration: const BoxDecoration(shape: BoxShape.circle, color: crimsonBright))),
+      ]);
+    }
+    return Semantics(label: st.label, child: s?.stale == true ? Opacity(opacity: 0.55, child: core) : core);
+  }
+}
+
+/// A sheet explaining every glyph the app uses.
+Future<void> showLegendSheet(BuildContext context) {
+  final cs = Theme.of(context).colorScheme;
+  Widget row(Widget glyph, String title, String text) => ListTile(dense: true, leading: SizedBox(width: 24, child: Center(child: glyph)), title: Text(title), subtitle: Text(text));
+  Widget ring(Color c) => SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 2, color: c));
+  return showModalBottomSheet(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      builder: (context, ctl) => ListView(controller: ctl, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 4), child: Text('Sessions', style: Theme.of(context).textTheme.titleMedium)),
+        row(ring(workingBlue), 'Working', 'Claude or Codex is busy. With subagents the label counts them.'),
+        row(const Icon(Icons.help, color: attentionAmber, size: 16), 'Needs your answer', 'A multiple-choice question is open. Tap Answer in the session.'),
+        row(const Icon(Icons.security, color: attentionAmber, size: 16), 'Needs approval', 'A permission prompt is waiting. Answer it from the session.'),
+        row(const Icon(Icons.checklist, color: attentionAmber, size: 16), 'Plan ready to approve', 'Plan mode finished a plan and asks how to proceed.'),
+        row(const Icon(Icons.chat_bubble, color: attentionAmber, size: 16), 'Waiting for you', 'The turn ended and the session waits for your next message.'),
+        row(const Icon(Icons.check_circle, color: readyGreen, size: 16), 'Ready', 'Idle: nothing running, nothing pending.'),
+        row(Icon(Icons.stop_circle_outlined, color: cs.outline, size: 16), 'Ended', 'The CLI exited. Resume in tmux restarts it.'),
+        row(Icon(Icons.visibility_outlined, color: cs.outline, size: 16), 'Read-only', 'Not running inside tmux, so the app can watch but not type.'),
+        row(Stack(clipBehavior: Clip.none, children: [const Icon(Icons.check_circle, color: readyGreen, size: 16), Positioned(right: -1, bottom: -1, child: Container(width: 6, height: 6, decoration: const BoxDecoration(shape: BoxShape.circle, color: crimsonBright)))]), 'Auto mode blocked something', 'The corner mark means the classifier refused an action in the last 15 minutes.'),
+        const Divider(),
+        Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 4), child: Text('Machines', style: Theme.of(context).textTheme.titleMedium)),
+        row(const Icon(Icons.link, color: readyGreen, size: 16), 'Online', 'The phone is talking to the daemon.'),
+        row(const Icon(Icons.sync, color: attentionAmber, size: 16), 'Connecting / reconnecting', 'Dialling the machine\'s addresses.'),
+        row(Icon(Icons.link_off, color: cs.outline, size: 16), 'Offline', 'No address answered; sessions show as last seen.'),
+        row(const Icon(Icons.link_off, color: crimsonBright, size: 16), 'Unreachable', 'Every address failed its last check. See Manage machines.'),
+        row(const Icon(Icons.error_outline, color: crimsonBright, size: 16), 'Pair again', 'The machine rejected this phone\'s token.'),
+        row(Icon(Icons.notifications_off_outlined, color: cs.outline, size: 16), 'Muted', 'No alerts or push from this machine.'),
+        const SizedBox(height: 16),
+      ]),
+    ),
+  );
 }
 
 String statusLabel(String status) {

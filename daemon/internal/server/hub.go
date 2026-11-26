@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -205,9 +206,28 @@ func (h *hub) SessionReplaced(oldKey, newKey string) {
 	h.each(func(c *conn) { c.push("session.replaced", ReplacedMsg{Old: oldKey, New: newKey}) })
 }
 func (h *hub) SessionRemoved(key string) {
-	h.each(func(c *conn) { c.push("session.removed", KeyReq{Key: key}) })
+	h.each(func(c *conn) {
+		// The registry dropped the session's subagent followers.
+		prefix := key + "#"
+		c.mu.Lock()
+		for k := range c.subs {
+			if strings.HasPrefix(k, prefix) {
+				delete(c.subs, k)
+			}
+		}
+		c.mu.Unlock()
+		c.push("session.removed", KeyReq{Key: key})
+	})
 }
 func (h *hub) Events(key string, evs []transcript.Event) {
+	if sk, agentID, ok := strings.Cut(key, "#"); ok {
+		h.each(func(c *conn) {
+			if c.subscribed(key) {
+				c.push("agent.events", AgentEventsMsg{Key: sk, AgentID: agentID, Events: evs})
+			}
+		})
+		return
+	}
 	h.each(func(c *conn) {
 		if c.subscribed(key) {
 			c.push("event", EventsMsg{Key: key, Events: evs})
@@ -385,12 +405,57 @@ func (c *conn) handle(ctx context.Context, m Message) {
 			c.reply(m.ID, false, "bad payload", nil)
 			return
 		}
-		evs, more, err := reg.History(r.Key, r.Before, r.Limit)
+		var evs []transcript.Event
+		var more bool
+		var err error
+		if r.AgentID != "" {
+			evs, more, err = reg.HistoryAgent(r.Key, r.AgentID, r.Before, r.Limit)
+		} else {
+			evs, more, err = reg.History(r.Key, r.Before, r.Limit)
+		}
 		if err != nil {
 			c.reply(m.ID, false, err.Error(), nil)
 			return
 		}
-		c.reply(m.ID, true, "", HistoryMsg{Key: r.Key, Events: evs, HasMore: more})
+		c.reply(m.ID, true, "", HistoryMsg{Key: r.Key, AgentID: r.AgentID, Events: evs, HasMore: more})
+	case "agent.subscribe":
+		// Read-only: subagent transcripts have no input path.
+		var r AgentSubscribeReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" || r.AgentID == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		ak := core.AgentKey(r.Key, r.AgentID)
+		c.mu.Lock()
+		already := c.subs[ak]
+		c.subs[ak] = true
+		c.mu.Unlock()
+		evs, more, err := reg.SubscribeAgent(r.Key, r.AgentID, r.Before, r.Limit)
+		if err != nil {
+			if !already {
+				c.mu.Lock()
+				delete(c.subs, ak)
+				c.mu.Unlock()
+			}
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		if already {
+			reg.UnsubscribeAgent(r.Key, r.AgentID) // keep the count at one per connection
+		}
+		c.reply(m.ID, true, "", HistoryMsg{Key: r.Key, AgentID: r.AgentID, Events: evs, HasMore: more})
+	case "agent.unsubscribe":
+		var r AgentKeyReq
+		_ = json.Unmarshal(m.Payload, &r)
+		ak := core.AgentKey(r.Key, r.AgentID)
+		c.mu.Lock()
+		was := c.subs[ak]
+		delete(c.subs, ak)
+		c.mu.Unlock()
+		if was {
+			reg.UnsubscribeAgent(r.Key, r.AgentID)
+		}
+		c.reply(m.ID, true, "", nil)
 	case "session.input":
 		var r InputReq
 		if err := json.Unmarshal(m.Payload, &r); err != nil {

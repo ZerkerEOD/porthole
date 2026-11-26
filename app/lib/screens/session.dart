@@ -8,6 +8,7 @@ import '../models.dart';
 import '../widgets/composer.dart';
 import '../widgets/event_tile.dart';
 import '../widgets/terminal.dart';
+import 'agents.dart';
 import 'new_session.dart';
 import 'question_flow.dart';
 
@@ -34,6 +35,7 @@ class _SessionScreenState extends State<SessionScreen> {
   bool _loading = true;
   bool _loadingMore = false;
   String? _error;
+  int _composerGen = 0;
   bool _terminal = false;
   /// True while a fresh session has no transcript yet; the chat view shows
   /// a starting notice until the first events land.
@@ -268,6 +270,13 @@ class _SessionScreenState extends State<SessionScreen> {
 
   Future<void> _sendText(String text, {required bool enter}) => _guard(widget.client.sendText(_key, text, enter: enter));
 
+  /// Puts text in the composer (from the agent view) and rebuilds it so the
+  /// field shows it.
+  void _prefill(String text) {
+    widget.client.setComposerDraft(_key, text);
+    setState(() => _composerGen++);
+  }
+
   /// Opens the mode sheet. A session with a prompt or question open cannot
   /// change mode (Shift+Tab means something else inside a dialog), and the
   /// sheet says so instead of trying.
@@ -361,7 +370,6 @@ class _SessionScreenState extends State<SessionScreen> {
     final client = widget.client;
     final question = _pendingQuestion();
     final machine = client.info.displayName;
-    final route = client.routeNote;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -370,9 +378,9 @@ class _SessionScreenState extends State<SessionScreen> {
           Row(children: [
             if (s != null) providerBadge(context, s.provider),
             const SizedBox(width: 6),
-            Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor(context, s?.status ?? 'unknown'))),
+            StatusGlyph(s, size: 12),
             const SizedBox(width: 4),
-            Flexible(child: Text('${widget.client.info.displayName} · ${statusLabel(s?.status ?? 'unknown')} · ${s?.repo ?? ''}${(s?.model ?? '').isNotEmpty ? ' · ${_shortModel(s!.model)}' : ''}${(s?.account ?? '').isNotEmpty ? ' · ${s!.account}' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
+            Flexible(child: Text('${s == null ? 'unknown' : sessionStateLabel(context, s)} · ${widget.client.info.displayName} · ${s?.repo ?? ''}${(s?.model ?? '').isNotEmpty ? ' · ${_shortModel(s!.model)}' : ''}${(s?.account ?? '').isNotEmpty ? ' · ${s!.account}' : ''}${(s?.totalTokens ?? 0) > 0 ? ' · ${compactTokens(s!.totalTokens)} tokens' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
           ]),
         ]),
         actions: [
@@ -415,18 +423,6 @@ class _SessionScreenState extends State<SessionScreen> {
               leading: const Icon(Icons.vpn_lock),
               content: Text(client.state == ConnState.connecting ? 'Reconnecting to $machine…' : (client.lastError ?? 'Connection to $machine lost. Reconnecting…')),
               actions: [TextButton(onPressed: () => client.connect(manual: true), child: const Text('Retry'))],
-            )
-          else if (route.isNotEmpty)
-            Material(
-              color: cs.surfaceContainerHigh,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                child: Row(children: [
-                  Icon(Icons.alt_route, size: 16, color: cs.onSurfaceVariant),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text('Connected ${route.startsWith('via') ? '' : 'to $machine · '}$route', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
-                ]),
-              ),
             ),
           if (s?.lastDenied case final d? when d.at != null && DateTime.now().difference(d.at!) < const Duration(minutes: 15))
             Material(
@@ -440,6 +436,7 @@ class _SessionScreenState extends State<SessionScreen> {
                 ]),
               ),
             ),
+          if (s != null && s.agents.isNotEmpty) AgentsStrip(client: widget.client, session: s, onMessage: _prefill),
           for (final p in perms) _PermissionCard(client: widget.client, req: p),
           if (question != null)
             _QuestionStrip(
@@ -472,7 +469,7 @@ class _SessionScreenState extends State<SessionScreen> {
           Expanded(child: _terminal ? _terminalBody() : _chatBody()),
           if (!_terminal)
             Composer(
-              key: ValueKey('composer-$_key'),
+              key: ValueKey('composer-$_key-$_composerGen'),
               enabled: controllable,
               online: client.online,
               skills: _skills,

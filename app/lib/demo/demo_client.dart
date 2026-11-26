@@ -178,6 +178,11 @@ class DemoDaemonClient extends DaemonClient {
         _pane(fx.claude1);
         _later(const Duration(seconds: 45), _askCodex);
         return {'ok': true};
+      case 'agent.subscribe':
+        final evs = fx.agentTranscript(p['agent_id'] as String);
+        return {'ok': true, 'data': {'key': p['key'], 'agent_id': p['agent_id'], 'events': evs, 'has_more': false}};
+      case 'agent.unsubscribe':
+        return {'ok': true};
       case 'session.mode':
         final key = p['key'] as String;
         final mode = p['mode'] as String;

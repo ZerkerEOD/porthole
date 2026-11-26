@@ -9,6 +9,7 @@ import '../attention.dart';
 import '../config.dart';
 import '../foreground.dart';
 import '../push.dart';
+import '../main.dart';
 import '../store.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -34,6 +35,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(children: [
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('What the icons mean'),
+          subtitle: const Text('Session and machine states, one line each'),
+          onTap: () => showLegendSheet(context),
+        ),
+        const Divider(),
         const _Header('Notifications'),
         SwitchListTile(
           title: const Text('Notify while connected'),

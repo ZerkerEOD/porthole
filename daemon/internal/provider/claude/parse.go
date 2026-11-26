@@ -42,6 +42,11 @@ type entry struct {
 	Level      string          `json:"level"`
 	IsAPIError bool            `json:"isApiErrorMessage"`
 	Error      json.RawMessage `json:"error"`
+	Operation  string          `json:"operation"` // queue-operation records
+
+	// ToolUseResult is the structured result Claude Code stores beside a
+	// tool_result block; for the Agent tool it names the subagent.
+	ToolUseResult json.RawMessage `json:"toolUseResult"`
 
 	// Metadata entries.
 	AITitle        string          `json:"aiTitle"`
@@ -129,8 +134,14 @@ func (p *Parser) ParseLine(line []byte) ([]transcript.Event, error) {
 		ev.Usage = &transcript.Usage{TotalCostUSD: e.TotalCostUSD}
 		ev.Meta = map[string]any{"total": true}
 		return []transcript.Event{ev}, nil
+	case "queue-operation":
+		if e.Operation == "enqueue" {
+			if ev, ok := taskNotice(e, base); ok {
+				return []transcript.Event{ev}, nil
+			}
+		}
 	}
-	// mode, atis-latch, attachment, queue-operation, file-history-*: not shown.
+	// mode, atis-latch, attachment, other queue operations, file-history-*: not shown.
 	return nil, nil
 }
 
@@ -170,6 +181,7 @@ func (p *Parser) parseUser(e entry, base transcript.Event) ([]transcript.Event, 
 	if err := json.Unmarshal(m.Content, &blocks); err != nil {
 		return nil, nil
 	}
+	agentID := resultAgentID(e.ToolUseResult)
 	var text strings.Builder
 	for _, b := range blocks {
 		switch b.Type {
@@ -188,6 +200,9 @@ func (p *Parser) parseUser(e entry, base transcript.Event) ([]transcript.Event, 
 			ev.Type = transcript.TypeToolResult
 			ev.Result = &transcript.ToolResult{ToolUseID: b.ToolUseID, IsError: b.IsError}
 			ev.Text, ev.Truncated = transcript.Clip(contentText(b.Content))
+			if agentID != "" {
+				ev.Meta = map[string]any{"agent_id": agentID}
+			}
 			out = append(out, ev)
 		}
 	}
@@ -200,6 +215,20 @@ func (p *Parser) parseUser(e entry, base transcript.Event) ([]transcript.Event, 
 	return out, nil
 }
 
+// resultAgentID returns the subagent id an Agent tool result names, if any.
+func resultAgentID(raw json.RawMessage) string {
+	if len(raw) == 0 || raw[0] != '{' {
+		return ""
+	}
+	var r struct {
+		AgentID string `json:"agentId"`
+	}
+	if json.Unmarshal(raw, &r) != nil {
+		return ""
+	}
+	return r.AgentID
+}
+
 // isSystemInjected recognizes harness-generated "user" lines that are not the
 // human's words (reminders, interruption notices, command echoes).
 func isSystemInjected(s string) bool {
@@ -207,6 +236,7 @@ func isSystemInjected(s string) bool {
 	return strings.HasPrefix(t, "<system-reminder>") ||
 		strings.HasPrefix(t, "<local-command-stdout>") ||
 		strings.HasPrefix(t, "<command-name>") ||
+		strings.HasPrefix(t, "<task-notification>") ||
 		strings.HasPrefix(t, "[Request interrupted by user")
 }
 

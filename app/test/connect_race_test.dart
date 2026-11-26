@@ -48,6 +48,7 @@ class ProbeClient extends DaemonClient {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  group('ignored hosts', ignoredHostsTests);
   late FakeNet net;
 
   setUp(() async {
@@ -159,18 +160,18 @@ void main() {
     c.close();
   });
 
-  test('hello hosts are merged, new order first, old extras kept, no duplicates', () async {
+  test('hello hosts replace the stored list; a hello without hosts changes nothing', () async {
     final c = ProbeClient(info(hosts: ['10.0.0.9', vpn]));
     c.inject({
       'type': 'hello',
       'payload': {'name': 'desk', 'version': '1', 'hosts': [vpn, lan]},
     });
-    expect(c.info.hosts, [vpn, lan, '10.0.0.9']);
+    expect(c.info.hosts, [vpn, lan]);
     c.inject({
       'type': 'hello',
       'payload': {'name': 'desk', 'version': '1'},
     });
-    expect(c.info.hosts, [vpn, lan, '10.0.0.9']);
+    expect(c.info.hosts, [vpn, lan]);
     c.close();
     expect(mergeHosts([' a ', 'b', 'a'], ['c', 'b', '']), ['a', 'b', 'c']);
     expect(mergeHosts([], ['c']), ['c']);
@@ -268,5 +269,37 @@ void main() {
       expect(race.winner, isNull);
       expect(race.summary(), '$lan: no route to host · $vpn: no route to host. $localNetworkHint');
     });
+  });
+}
+
+void ignoredHostsTests() {
+  late FakeNet net;
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    net = FakeNet();
+    await net.start();
+  });
+  tearDown(() => net.stop());
+
+  test('an ignored address is never dialled or probed', () async {
+    final i = info()..ignoredHosts.add(vpn);
+    final c = DaemonClient(i, connector: net.connect);
+    await c.connect(manual: true);
+    expect(c.online, isTrue);
+    expect(net.dialed, [lan]);
+    await c.probeHosts();
+    expect(net.dialed.where((h) => h == vpn), isEmpty);
+    expect(c.hostStatus.containsKey(vpn), isFalse);
+    c.close();
+  });
+
+  test('hello replaces the stored addresses but keeps the one in use', () async {
+    final c = ProbeClient(info(hosts: [vpn, lan, 'fd00::1'], lastHost: lan));
+    c.hostStatus['fd00::1'] = HostStatus(reachable: false, checkedAt: DateTime.now(), error: 'timed out');
+    c.inject({'type': 'hello', 'payload': {'name': 'desk', 'version': '1', 'hosts': [vpn, '192.168.1.9'], 'sessions': []}});
+    expect(c.info.hosts, [vpn, '192.168.1.9', lan]);
+    expect(c.hostStatus.containsKey('fd00::1'), isFalse);
+    expect(c.routeNote, isNot(contains('fd00')));
+    c.close();
   });
 }

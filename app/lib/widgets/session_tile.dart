@@ -15,13 +15,24 @@ class SessionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final st = sessionState(context, s);
     final tile = ListTile(
-      leading: Container(width: 10, height: 10, margin: const EdgeInsets.only(top: 6), decoration: BoxDecoration(shape: BoxShape.circle, color: s.stale ? cs.outlineVariant : statusColor(context, s.status))),
+      leading: Padding(padding: const EdgeInsets.only(top: 4), child: StatusGlyph(s, size: 18)),
       title: Text(s.displayTitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Row(children: [
         providerBadge(context, s.provider),
         const SizedBox(width: 6),
-        Flexible(child: Text('${s.repo}${s.branch.isNotEmpty ? ' · ${s.branch}' : ''} · ${s.stale ? 'last seen' : statusLabel(s.status)}${_modeTag(s)}${machine != null ? ' · $machine' : ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: cs.onSurfaceVariant))),
+        Flexible(
+          child: Text.rich(
+            TextSpan(children: [
+              TextSpan(text: sessionStateLabel(context, s), style: TextStyle(color: s.stale ? cs.onSurfaceVariant : st.color, fontWeight: st.attention ? FontWeight.w600 : FontWeight.w500)),
+              TextSpan(text: ' · ${s.repo}${s.branch.isNotEmpty ? ' · ${s.branch}' : ''}${_modeTag(s)}${machine != null ? ' · $machine' : ''}'),
+            ]),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: cs.onSurfaceVariant),
+          ),
+        ),
       ]),
       trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
         Text(relTime(s.updatedAt), style: Theme.of(context).textTheme.labelSmall),
@@ -29,7 +40,12 @@ class SessionTile extends StatelessWidget {
       ]),
       onTap: onTap,
     );
-    return s.stale ? Opacity(opacity: 0.55, child: tile) : tile;
+    // Rows that wait for the person carry an amber edge so they stand out
+    // before the label is read.
+    final edged = st.attention && !s.stale
+        ? DecoratedBox(decoration: const BoxDecoration(border: Border(left: BorderSide(color: attentionAmber, width: 3))), child: tile)
+        : tile;
+    return s.stale ? Opacity(opacity: 0.55, child: edged) : edged;
   }
 
   /// " · ⏸ Plan" for a running Claude session whose mode is known.
@@ -72,16 +88,24 @@ class MachineStateChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final route = client.routeNote;
-    final (label, color) = switch (client.state) {
-      ConnState.connected => (route.isEmpty ? 'online' : (route.startsWith('via') ? 'online $route' : 'online · $route'), const Color(0xFF3DDC84)),
-      ConnState.connecting => ('connecting', const Color(0xFFFFD54F)),
-      ConnState.disconnected => ('reconnecting', const Color(0xFFFFD54F)),
-      ConnState.offline => client.needsRepair ? ('pair again', crimsonBright) : ('offline${client.lastSeen != null ? ' · seen ${relAgo(client.lastSeen)}' : ''}', cs.outline),
+    // Only the state: which address carries it, and which failed, belong to
+    // Manage machines.
+    final (label, icon, color, spin) = switch (client.state) {
+      _ when client.isDemo => ('demo', Icons.science_outlined, cs.outline, false),
+      ConnState.connected => ('online', Icons.link, readyGreen, false),
+      ConnState.connecting => ('connecting', Icons.sync, attentionAmber, true),
+      ConnState.disconnected => ('reconnecting', Icons.sync, attentionAmber, true),
+      ConnState.offline when client.needsRepair => ('pair again', Icons.error_outline, crimsonBright, false),
+      ConnState.offline when client.allUnreachable => ('unreachable', Icons.link_off, crimsonBright, false),
+      ConnState.offline => ('offline${client.lastSeen != null ? ' · seen ${relAgo(client.lastSeen)}' : ''}', Icons.link_off, cs.outline, false),
     };
+    final glyph = spin
+        ? SizedBox(width: 12, height: 12, child: CircularProgressIndicator(key: const ValueKey('state-ring'), strokeWidth: 1.6, color: color))
+        : Icon(icon, size: 14, color: color);
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: color)),
-      if (!compact) ...[const SizedBox(width: 6), Text(label, style: TextStyle(fontSize: 11, color: client.needsRepair ? crimsonBright : cs.onSurfaceVariant))],
+      SizedBox(width: 14, height: 14, child: Center(child: glyph)),
+      if (!compact) ...[const SizedBox(width: 6), Text(label, style: TextStyle(fontSize: 11, color: color == crimsonBright ? crimsonBright : cs.onSurfaceVariant))],
+      if (client.info.muted) ...[const SizedBox(width: 6), Icon(Icons.notifications_off_outlined, size: 13, color: cs.outline)],
     ]);
   }
 }

@@ -74,11 +74,21 @@ running sessions. Rename it, toggle **Auto-connect** (connect when the app
 opens), **Mute notifications** (no alerts or push from this machine),
 **Connect now**, or **Forget** it. **Pair machine** adds another.
 
+Each entry lists the machine's addresses as the daemon advertises them, with
+the result of the last check and which one carries the connection. Tap an
+address to prefer it. Hold one for **Ignore this address**: the app stops
+dialling and checking it, and it stays in the list struck through until you
+hold it again and choose **Stop ignoring**. Addresses the daemon stops
+advertising drop out of the list on the next connection by themselves. This
+is the only place the app talks about addresses; everywhere else a machine is
+just online, reconnecting, offline or unreachable.
+
 ### Accounts & usage
 
 With [claude-swap](https://github.com/ZerkerEOD/claude-swap) installed on the
-machine, this screen shows which account is active and how much of each quota
-window is used. Codex rate limits appear when the CLI reports them.
+machine, this page shows which account is active, how much of each quota
+window is used and when it resets. Codex rate limits appear when the CLI
+reports them. Pull down to refresh; the back arrow returns to the list.
 
 ### Settings
 
