@@ -119,6 +119,7 @@ class Session {
         permissionMode = j['permission_mode'] as String? ?? '',
         lastDenied = j['last_denied'] is Map ? DeniedTool.fromJson((j['last_denied'] as Map).cast<String, dynamic>()) : null,
         agents = [for (final a in (j['agents'] as List? ?? const [])) AgentInfo.fromJson((a as Map).cast<String, dynamic>())],
+        agentsTotal = (j['agents_total'] as num?)?.toInt() ?? 0,
         usage = j['usage'] is Map ? (j['usage'] as Map).cast<String, dynamic>() : null,
         stale = j['_stale'] as bool? ?? false;
 
@@ -128,8 +129,11 @@ class Session {
   final String permissionMode;
   /// The last action auto mode refused without a prompt, if any.
   final DeniedTool? lastDenied;
-  /// Subagents of this session, from the daemon.
+  /// Subagents of this session, from the daemon: every running one and the
+  /// most recent finished ones. [agentsTotal] counts them all.
   final List<AgentInfo> agents;
+  final int agentsTotal;
+  int get agentCount => agentsTotal > agents.length ? agentsTotal : agents.length;
   /// The session's own token totals (input_tokens, output_tokens,
   /// cache_read_tokens, cache_creation_tokens), without its subagents.
   final Map<String, dynamic>? usage;

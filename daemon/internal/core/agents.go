@@ -30,9 +30,10 @@ func (r *Registry) claudeExtras(s *Session, prev *Session) {
 				a.Running = true
 			}
 		}
-		s.Agents = agents
+		s.AgentsTotal = len(agents)
+		s.Agents = trimAgents(agents, maxFinishedAgents)
 	} else if prev != nil {
-		s.Agents = prev.Agents
+		s.Agents, s.AgentsTotal = prev.Agents, prev.AgentsTotal
 	}
 	if u, err := claude.TranscriptUsage(s.TranscriptPath); err == nil {
 		if u != (transcript.Usage{}) {
@@ -43,6 +44,34 @@ func (r *Registry) claudeExtras(s *Session, prev *Session) {
 	} else if prev != nil {
 		s.Usage = prev.Usage
 	}
+}
+
+// maxFinishedAgents bounds how many finished subagents ride along with a
+// session; long sessions accumulate hundreds and every upsert carries them.
+const maxFinishedAgents = 40
+
+// trimAgents keeps every running agent and the most recent keep finished
+// ones, in the original (oldest first) order. AgentsTotal still counts all.
+func trimAgents(agents []transcript.AgentInfo, keep int) []transcript.AgentInfo {
+	finished := 0
+	for _, a := range agents {
+		if !a.Running {
+			finished++
+		}
+	}
+	drop := finished - keep
+	if drop <= 0 {
+		return agents
+	}
+	out := make([]transcript.AgentInfo, 0, len(agents)-drop)
+	for _, a := range agents {
+		if !a.Running && drop > 0 {
+			drop--
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // stopAgents returns agents with Running cleared, for a session that exited.

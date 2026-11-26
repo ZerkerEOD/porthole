@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -114,5 +115,24 @@ func TestAgentsOnSessionAndFollow(t *testing.T) {
 	r.mu.RUnlock()
 	if still {
 		t.Fatal("agent follower survived its session")
+	}
+}
+
+func TestTrimAgentsKeepsRunningAndRecent(t *testing.T) {
+	var agents []transcript.AgentInfo
+	for i := 0; i < 10; i++ {
+		agents = append(agents, transcript.AgentInfo{ID: fmt.Sprint(i), Running: i == 2 || i == 7})
+	}
+	out := trimAgents(agents, 3)
+	var ids []string
+	for _, a := range out {
+		ids = append(ids, a.ID)
+	}
+	// Running 2 and 7 stay; of the eight finished only the last three (6, 8, 9) remain.
+	if got := strings.Join(ids, ","); got != "2,6,7,8,9" {
+		t.Fatalf("kept %s", got)
+	}
+	if len(trimAgents(agents, 20)) != 10 {
+		t.Fatal("nothing to trim must return everything")
 	}
 }

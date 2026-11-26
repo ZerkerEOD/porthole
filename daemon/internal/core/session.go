@@ -52,6 +52,9 @@ type Session struct {
 	// Agents lists the subagent runs (Claude Code Agent tool calls) of the
 	// session, oldest first.
 	Agents []transcript.AgentInfo `json:"agents,omitempty"`
+	// AgentsTotal counts every subagent found, including finished ones the
+	// Agents list leaves out.
+	AgentsTotal int `json:"agents_total,omitempty"`
 	// Usage is the session's own token usage (subagents excluded), summed
 	// over its assistant messages.
 	Usage *transcript.Usage `json:"usage,omitempty"`
