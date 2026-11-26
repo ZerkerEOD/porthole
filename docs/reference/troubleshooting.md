@@ -71,6 +71,21 @@ Start with `porthole doctor` and `porthole status` on the machine. Daemon logs: 
     `permission_timeout_s` (60 s) with no answer, so an old prompt may already
     have been answered at the keyboard.
 
+**Run with ! says the session is busy or has unsent text**
+:   `!` only enters Claude Code's shell mode when the session is waiting at
+    its prompt with an empty input box. Wait for the turn to finish, or open
+    the terminal view and clear anything typed there, then try again. If the
+    session is busy for a while, **Run in a window** runs the command
+    anyway and sends the output into the session when it exits.
+
+**A run card stays on "running", or the terminal shows a dead window**
+:   The daemon that started the run has restarted, usually because the
+    command itself reinstalled it. The new daemon picks the run up from
+    disk, finishes the card and sends the output if asked; the card then
+    says "recovered". A window whose command has ended stays in tmux for ten
+    minutes and is closed by the daemon; the app never follows a dead window,
+    so use **Full output** on the card instead.
+
 **Session status stays "unknown"**
 :   The status comes from hooks, so sessions started before the hooks were
     installed report nothing until restarted.

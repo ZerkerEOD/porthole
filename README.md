@@ -6,6 +6,21 @@ tmux sessions; the app connects to it over your LAN or VPN.
 
 Documentation: <https://zerkersec.io/porthole/docs/>
 
+From the phone you can:
+
+- read the conversation as it happens, including tool calls, thinking and
+  the subagents a session has started;
+- type prompts and slash commands, or open the live terminal;
+- answer permission prompts and plan approvals, and switch the permission
+  mode (manual, accept edits, plan, auto);
+- run a command Claude suggested, either inside the session with Claude
+  Code's `!` prefix or in a separate tmux window, and have the output land in
+  the conversation;
+- send a photo for Claude to look at, and see the images Claude looked at or
+  produced;
+- start a new session in a repository, and see which account is working and
+  how much quota is left.
+
 ## Install
 
 On the computer that runs Claude Code or Codex (Linux, macOS, or Windows

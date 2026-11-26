@@ -5,8 +5,10 @@ A daemon runs on the machine where the agents run. The app connects to it over
 your LAN or VPN on TCP port 7433, reads the agents' own transcript files, and
 sends input into the session's tmux window. From the phone you can read a
 conversation including tool calls and thinking, type prompts and slash commands,
-open a terminal view of the tmux pane, answer Claude Code permission prompts,
-start a new session in a repository, and, with
+open a terminal view of the tmux pane, answer Claude Code permission prompts and
+plan approvals, change the permission mode, run a command Claude suggested and
+see its output, send a photo for Claude to look at, watch the subagents a
+session has started, start a new session in a repository, and, with
 [claude-swap](https://github.com/ZerkerEOD/claude-swap) installed, see which
 account is active and how much quota is left.
 
@@ -46,7 +48,9 @@ Source code and daemon releases: <https://github.com/ZerkerEOD/porthole>.
 
 ## Where to go next
 
-- [Sessions](guide/sessions.md): which sessions the app can control, and how to start new ones.
+- [Sessions](guide/sessions.md): which sessions the app can control, how to
+  start new ones, permission prompts and modes, running suggested commands,
+  images, subagents, and what each status glyph means.
 - [Push notifications](guide/push.md): alerts while the app is closed.
 - [Configuration](guide/config.md) and the [CLI reference](guide/cli.md).
 - [Build the app yourself](self-host/app.md) and [self-host the push relay](self-host/relay.md).

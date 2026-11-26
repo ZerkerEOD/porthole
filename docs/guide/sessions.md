@@ -129,24 +129,36 @@ When Claude's reply contains a shell block, the block carries three actions:
 **Copy**, **Run with !** and **Run in a window**. Both run paths show the
 exact command first and wait for you to confirm.
 
-**Run with !** types the command into the session the way you would at the
-keyboard, with Claude Code's `!` prefix. The command runs in the session's
-own shell, and its output is recorded in the conversation, so Claude sees
-it on the next turn. The chat shows it as a command block: the command line,
-then stdout, then stderr. The `!` prefix only works while the session is at
-its prompt, so this action is disabled while Claude is working, and it is
-offered only for blocks whose lines are plain commands (no heredocs, no line
-continuations); several lines are joined with `&&`.
+**Run with !** uses a feature of Claude Code itself: a line that starts
+with `!` is run in a shell instead of being sent to the model, and the
+command and its output are written into the conversation, so Claude sees
+them on its next turn. The app asks the daemon to type `!` into the
+session, wait for the terminal to show its shell prompt, then type the
+command and press Enter, exactly what you would do at the keyboard. The
+chat shows the result as a command block: the command line, then its
+output, then any errors. Because `!` only works while the session is
+waiting at its prompt, the action is greyed out while Claude is working,
+and if the terminal does not switch to its shell prompt within a second or
+two the daemon takes the `!` back and tells you the session is busy or has
+unsent text in its input box. The action is offered only for blocks whose
+lines are plain commands (no heredocs, no line continuations); several
+lines are joined with `&&`.
 
 **Run in a window** is for long commands, multi-line blocks, or a session
-that is busy. The daemon opens a tmux window next to the session, runs the
-command there and streams the last lines into a card under the session
-header, with **Stop**, **Open window** and **Dismiss**. When the command
+that is busy. The daemon opens a new window in the session's tmux session,
+runs the command there and streams the last lines into a card under the
+session header, with **Stop**, **Open window** and **Dismiss**. **Open
+window** shows that window in the terminal view while the command runs;
+**Back to session** returns to the session's own pane. When the command
 exits, the daemon types one message into the session with the command, the
 last 120 lines of output and the exit code, so the result reaches Claude
-the same way. If the session was busy, Claude Code queues that message as
-the next turn and the card says so. Switch **Send output to the session**
-off in the confirmation to keep the output on the card only.
+the same way a pasted message would. If the session was busy, Claude Code
+queues that message as the next turn and the card says so. Switch **Send
+output to the session** off in the confirmation to keep the output on the
+card only. The finished window stays in tmux, named `ph-run-` and the run's
+id, for ten minutes and is then closed; **Dismiss** closes it at once. The
+daemon only ever closes windows it opened itself. The card keeps the output
+either way.
 
 Both actions run with your account on the machine, exactly as typing into
 the terminal would; the daemon logs every run with the device that asked
@@ -165,9 +177,11 @@ anywhere else.
 
 - The attach button in the message box takes a photo or picks one from the
   library, uploads it to the daemon, and adds an "Attached image:" line with
-  the file's path to your message. Claude reads the file from there. Uploads
-  live under the daemon's state directory in `uploads/<session id>/` and are
-  removed after seven days.
+  the file's path to your message. Claude reads the file from there with its
+  Read tool, so you can ask about a screenshot, a whiteboard or an error on
+  another screen. PNG, JPEG, WebP and GIF up to 10 MB are accepted. Uploads
+  live under the daemon's state directory in `uploads/<session id>/`,
+  readable only by your user, and are removed after seven days.
 - Images in the transcript are shown inline: what you pasted in the terminal
   and what Claude looked at with its Read tool. Tap one to view it full size.
   Images over 1.5 MB are listed by size instead of shown.

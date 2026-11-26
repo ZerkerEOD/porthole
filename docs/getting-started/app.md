@@ -32,8 +32,12 @@ The empty home screen offers two things:
 ### Home
 
 Home lists every session from every connected machine, filtered by **All**, a
-machine, **Claude** or **Codex**. Sessions that need you (a permission prompt, a
-question) move to the top with a badge. Finished sessions are under
+machine, **Claude** or **Codex**. Each row shows a glyph and a word for what
+the session is doing: blue means working, amber means it is waiting for you,
+green means ready and grey means it has ended. The **(i)** button explains
+every glyph; so does [Reading the states](../guide/sessions.md#reading-the-states).
+Sessions that need you (a permission prompt, a question, a plan to approve)
+move to the top with a badge. Finished sessions are under
 **History**. **New session** starts an agent on a repository of a connected
 machine. A machine's menu offers **Connect now**, **Accounts & usage**,
 **Open machine view** and **Manage machines**.
@@ -53,7 +57,25 @@ at the keyboard.
 - **Resume in tmux…** restarts a finished session inside tmux so it becomes
   controllable.
 - A permission request appears as a card with the tool name and input and
-  **Allow** and **Deny** buttons.
+  **Allow** and **Deny** buttons. A prompt the terminal is already showing,
+  or a plan waiting for approval, appears as a card with the same choices the
+  terminal offers; see
+  [permission prompts](../guide/sessions.md#hooks-permission-prompts-and-status).
+- The **mode chip** in the header (Manual, Edits, Plan, Auto) shows the
+  session's permission mode. Tap it to change it; see
+  [Permission mode](../guide/sessions.md#permission-mode).
+- A shell command in one of Claude's replies has **Copy**, **Run with !**
+  and **Run in a window** under it. Either run path shows you the command
+  and asks before running; see
+  [Running a suggested command](../guide/sessions.md#running-a-suggested-command).
+  Commands run with `!`, from the phone or at the keyboard, appear in the
+  chat as a command block with their output.
+- The **attach** button in the message box sends a photo or a picture from
+  the library for Claude to look at. Images in the conversation show inline;
+  tap one to see it full size. See [Images](../guide/sessions.md#images).
+- A session that has started subagents shows a strip under its title with
+  their count, how many are still working and their tokens. Tap it for the
+  list; see [Subagents](../guide/sessions.md#subagents).
 
 The header shows the machine, session status, repository, model and the
 account doing the work. A session that is not running inside tmux shows a
