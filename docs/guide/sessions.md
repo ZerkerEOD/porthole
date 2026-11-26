@@ -96,6 +96,12 @@ manually approve edits**, **Tell Claude what to change**. Tapping one presses
 the matching keys in the terminal. If the daemon is not running, nothing is
 held and the terminal prompt appears as usual.
 
+The plan approval dialog is never held by the hook, because a hook decision
+can only say yes or no. The daemon lets the terminal draw it, reads it back
+within a second or two, and shows the whole plan from the plan file on the
+card with the dialog's three choices. After **Tell Claude what to change**,
+type the change in the message box.
+
 Hooks take effect for sessions started after they were installed; running
 sessions keep their old hook set. `porthole uninstall-hooks` removes them
 (remove Codex's `notify` line by hand).

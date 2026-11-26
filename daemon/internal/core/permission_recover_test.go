@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -92,5 +93,36 @@ func TestParsePermissionDialogScrolledPlan(t *testing.T) {
 	d, ok := parsePermissionDialog(lines)
 	if !ok || d.Tool != "Plan approval" || len(d.Options) != 3 {
 		t.Fatalf("%+v ok=%v", d, ok)
+	}
+}
+
+func TestPlanFileFromFooterAndReadPlan(t *testing.T) {
+	lines := readLines(t, "perm_plan.txt")
+	if got := planFile(lines); got != "~/.claude/plans/logical-launching-origami.md" {
+		t.Fatalf("plan file %q", got)
+	}
+	if planFile(readLines(t, "perm_bash.txt")) != "" {
+		t.Fatal("a Bash dialog names no plan file")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	plans := filepath.Join(home, ".claude", "plans")
+	if err := os.MkdirAll(plans, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plans, "x.md"), []byte("# Plan\n\n1. Do the thing\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "secret.md"), []byte("nope"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := readPlan("~/.claude/plans/x.md", []string{plans}); err != nil || got != "# Plan\n\n1. Do the thing" {
+		t.Fatalf("plan %q %v", got, err)
+	}
+	if got, err := readPlan("~/secret.md", []string{plans}); err == nil || got != "" {
+		t.Fatalf("a file outside the plans directory must not be read: %q", got)
+	}
+	if got, err := readPlan("~/.claude/plans/../secret.md", []string{plans}); err == nil || got != "" {
+		t.Fatalf("traversal must not be read: %q", got)
 	}
 }

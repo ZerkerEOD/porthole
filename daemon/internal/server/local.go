@@ -254,6 +254,15 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		l.reg.Attention().Permission(key, h.ToolName)
+		if h.ToolName == exitPlanTool {
+			// The plan dialog offers three choices and shows the plan; a hook
+			// decision could only say yes or no. Let the terminal draw it and
+			// read it back for the phone.
+			l.reg.SetStatus(key, transcript.StatusWaitingPermission)
+			l.reg.RecoverPermissionSoon(key)
+			writeJSON(w, map[string]any{})
+			return
+		}
 		timeout := time.Duration(l.cfg.Hooks.PermissionTimeoutS) * time.Second
 		if timeout <= 0 {
 			timeout = 60 * time.Second
@@ -276,6 +285,9 @@ func (l *Local) handleClaudeHook(w http.ResponseWriter, r *http.Request) {
 
 // askTool is the Claude Code tool whose dialog question.answer drives.
 const askTool = "AskUserQuestion"
+
+// exitPlanTool opens the plan approval dialog.
+const exitPlanTool = "ExitPlanMode"
 
 // questionItems decodes the AskUserQuestion tool input.
 func questionItems(input map[string]any) []core.QuestionItem {

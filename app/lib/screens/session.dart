@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 
 import '../client.dart';
 import '../main.dart';
@@ -593,7 +594,8 @@ class _PermissionCard extends StatelessWidget {
     final detail = req.recovered ? req.detail : '${input?['command'] ?? input?['file_path'] ?? input?['url'] ?? input?['description'] ?? ''}';
     final description = req.recovered ? req.description : input?['description'];
     final note = description is String && description.isNotEmpty && description != detail ? description : '';
-    final title = req.recovered ? req.toolName : 'Permission: ${req.toolName}';
+    final plan = req.recovered && req.toolName == 'Plan approval';
+    final title = plan ? 'Plan ready to approve' : (req.recovered ? req.toolName : 'Permission: ${req.toolName}');
     return Card(
       color: cs.primaryContainer,
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -606,7 +608,23 @@ class _PermissionCard extends StatelessWidget {
             Expanded(child: Text(title.isEmpty ? 'Permission' : title, style: const TextStyle(fontWeight: FontWeight.w600))),
           ]),
           if (note != '') Padding(padding: const EdgeInsets.only(top: 4), child: Text(note, style: Theme.of(context).textTheme.bodySmall)),
-          if (detail != '') Padding(padding: const EdgeInsets.only(top: 6), child: SelectableText(detail, style: const TextStyle(fontFamily: 'monospace', fontSize: 12), minLines: 1, maxLines: 8)),
+          if (detail != '' && plan)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: Material(
+                  color: cs.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(10),
+                    child: GptMarkdown(detail, style: Theme.of(context).textTheme.bodySmall),
+                  ),
+                ),
+              ),
+            )
+          else if (detail != '')
+            Padding(padding: const EdgeInsets.only(top: 6), child: SelectableText(detail, style: const TextStyle(fontFamily: 'monospace', fontSize: 12), minLines: 1, maxLines: 8)),
           if (req.recovered && req.prompt.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(req.prompt, style: const TextStyle(fontWeight: FontWeight.w500))),
           const SizedBox(height: 8),
           if (req.recovered)
@@ -619,7 +637,15 @@ class _PermissionCard extends StatelessWidget {
                 else if (req.options[i] == 'No')
                   TextButton(onPressed: () => client.answerPermissionOption(req.id, i), child: const Text('No'))
                 else
-                  OutlinedButton(onPressed: () => client.answerPermissionOption(req.id, i), child: Text(req.options[i], maxLines: 2, overflow: TextOverflow.ellipsis)),
+                  OutlinedButton(
+                    onPressed: () async {
+                      await client.answerPermissionOption(req.id, i);
+                      if (req.options[i].startsWith('Tell Claude') && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Now type what to change in the message box.')));
+                      }
+                    },
+                    child: Text(req.options[i], maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ),
             ])
           else
             Row(mainAxisAlignment: MainAxisAlignment.end, children: [

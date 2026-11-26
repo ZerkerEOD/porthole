@@ -4,6 +4,11 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -50,6 +55,85 @@ var (
 	// Hints the CLI appends to an option, not part of its meaning.
 	optionHintRe = regexp.MustCompile(`\s*·\s*auto mode handles these prompts for you$|\s*shift\+tab to approve with this feedback$`)
 )
+
+// planFileRe matches the plan dialog footer, which names the plan file.
+var planFileRe = regexp.MustCompile(`ctrl\+g to edit in Vim\s*·\s*(\S+\.md)\s*$`)
+
+// planFile returns the plan file the dialog footer names, or "".
+func planFile(raw []string) string {
+	for i := len(raw) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(strings.ReplaceAll(stripANSI(raw[i]), "\u00a0", " "))
+		if m := planFileRe.FindStringSubmatch(l); m != nil {
+			return m[1]
+		}
+		if l != "" && permFooter(l) {
+			return ""
+		}
+	}
+	return ""
+}
+
+// maxPlanBytes bounds what is read from a plan file into a request.
+const maxPlanBytes = 64 << 10
+
+// readPlan returns the plan text when path (as the CLI prints it, "~" for
+// home) resolves inside one of the allowed plans directories. Anything else
+// is left unread: the path came off a terminal screen.
+func readPlan(path string, allowedDirs []string) (string, error) {
+	if path == "" {
+		return "", errors.New("no plan file on screen")
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(home, path[2:])
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	ok := false
+	for _, d := range allowedDirs {
+		dr, err := filepath.EvalSymlinks(d)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(real, dr+string(filepath.Separator)) {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return "", fmt.Errorf("%s is outside the plans directories %v", real, allowedDirs)
+	}
+	f, err := os.Open(real)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxPlanBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(b) > maxPlanBytes {
+		b = append(b[:maxPlanBytes], []byte("\n\n[plan truncated]")...)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// plansDirs lists where the session's CLI keeps plan files.
+func (r *Registry) plansDirs(s Session) []string {
+	var out []string
+	if s.Profile != "" {
+		out = append(out, filepath.Join(s.Profile, "plans"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		out = append(out, filepath.Join(home, ".claude", "plans"))
+	}
+	return out
+}
 
 func permFooter(l string) bool {
 	t := strings.TrimSpace(l)
@@ -248,11 +332,46 @@ func (r *Registry) recoverPermission(key string, scr *tmux.Screen) {
 		r.perm.dropRecovered(cur.ID, "replaced")
 	}
 	req := PermissionRequest{ID: id, SessionKey: key, ToolName: d.Tool, Cwd: s.Cwd, CreatedAt: time.Now(), Recovered: true, Prompt: d.Prompt, Description: d.Description, Detail: d.Detail, Options: d.Options}
+	if d.Tool == "Plan approval" {
+		// The dialog shows a window onto the plan; the file has all of it.
+		if plan, err := readPlan(planFile(scr.Lines), r.plansDirs(s)); err == nil && plan != "" {
+			req.Detail = plan
+			req.Description = "The full plan, from the plan file."
+		} else {
+			r.log.Warn("plan file not read", "session", key, "err", err)
+		}
+	}
 	r.perm.addRecovered(req)
 	if s.Status != transcript.StatusWaitingPermission {
 		r.SetStatus(key, transcript.StatusWaitingPermission)
 	}
-	r.log.Info("permission dialog recovered", "session", key, "id", id, "tool", d.Tool, "options", len(d.Options))
+	r.log.Info("permission dialog recovered", "session", key, "id", id, "tool", d.Tool, "options", len(d.Options), "detail_bytes", len(req.Detail))
+}
+
+// RecoverPermissionSoon reads the session's pane shortly after a prompt the
+// daemon chose not to hold (the plan approval dialog), so the card reaches
+// the phone without waiting for the next scan tick.
+func (r *Registry) RecoverPermissionSoon(key string) {
+	go func() {
+		for _, wait := range []time.Duration{700 * time.Millisecond, 1500 * time.Millisecond, 3 * time.Second} {
+			time.Sleep(wait)
+			r.mu.RLock()
+			s, ok := r.sessions[key]
+			busy := r.answering[key]
+			r.mu.RUnlock()
+			if !ok || busy || !s.Controllable || s.PaneID == "" {
+				return
+			}
+			scr, err := r.tm.Capture(context.Background(), s.PaneID, 0)
+			if err != nil {
+				return
+			}
+			r.recoverPermission(key, scr)
+			if r.perm.recoveredFor(key) != nil {
+				return
+			}
+		}
+	}()
 }
 
 // scanScreens runs from the scan tick for running controllable Claude
