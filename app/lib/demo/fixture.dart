@@ -109,6 +109,7 @@ List<Map<String, dynamic>> sessions([String machine = demoDaemonId]) {
         'permission_mode': 'acceptEdits',
         'usage': {'input_tokens': 182000, 'output_tokens': 9400, 'cache_read_tokens': 410000},
         'agents': demoAgents(),
+        'queued': ['Also keep the cache key tied to go.sum'],
         'running': true,
         'controllable': true,
         'pane_id': '%2',

@@ -157,7 +157,7 @@ class DemoDaemonClient extends DaemonClient {
         _pane(key);
         _later(const Duration(milliseconds: 1500), () {
           _append(key, 'assistant.text', text: fx.cannedReply(text));
-          _upsert(key, {'status': 'idle'});
+          _upsert(key, {'status': 'idle', 'queued': const <String>[]});
           _pane(key);
         });
         return {'ok': true};

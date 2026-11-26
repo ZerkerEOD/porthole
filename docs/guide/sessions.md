@@ -123,6 +123,31 @@ header notes the last one ("Auto mode blocked Bash, 2m ago") and the terminal
 lists them under `/permissions`. After several blocks Claude Code pauses auto
 mode and prompts normally, which the app then shows as above.
 
+## Messages sent while Claude is busy
+
+Claude Code does not interrupt a turn for a new message. Type one while it
+is working, at the keyboard or from the phone, and the CLI holds it in a
+queue, draws it above the spinner, and sends it when the turn ends or when
+it next reports back from a tool. A queued message is not in the transcript
+yet, so the app cannot read it from there. Instead it shows it two ways.
+
+- A message you send from the phone appears at the bottom of the chat as
+  soon as you tap send, faded, with a line under it: "Sending…", then
+  "Queued · sends when Claude finishes the current turn" while the session
+  is busy. When the message reaches the transcript the placeholder is
+  replaced by the real one. If the daemon could not type it, the bubble
+  says why and offers **Retry**.
+- Messages queued from anywhere else, including the keyboard and another
+  phone, are read off the terminal screen by the daemon and shown the same
+  way, in the order they will be sent. They disappear when the CLI sends
+  them.
+
+While messages are queued, **Run with !** is unavailable, because the `!`
+command would only join the queue behind them; the block says how many are
+ahead. **Run in a window** still works. To send the queued messages at
+once, open the terminal view and tap **Send now** on the key bar; it
+presses ctrl+x ctrl+s, the CLI's own key for that.
+
 ## Running a suggested command
 
 When Claude's reply contains a shell block, the block carries three actions:

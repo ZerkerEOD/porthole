@@ -71,12 +71,21 @@ Start with `porthole doctor` and `porthole status` on the machine. Daemon logs: 
     `permission_timeout_s` (60 s) with no answer, so an old prompt may already
     have been answered at the keyboard.
 
-**Run with ! says the session is busy or has unsent text**
+**Run with ! says the session is busy, has unsent text, or has messages queued**
 :   `!` only enters Claude Code's shell mode when the session is waiting at
-    its prompt with an empty input box. Wait for the turn to finish, or open
-    the terminal view and clear anything typed there, then try again. If the
-    session is busy for a while, **Run in a window** runs the command
-    anyway and sends the output into the session when it exits.
+    its prompt with an empty input box and nothing queued. Wait for the turn
+    and the queued messages to go through, or open the terminal view and
+    clear anything typed there, then try again. If the session is busy for a
+    while, **Run in a window** runs the command anyway and sends the output
+    into the session when it exits.
+
+**A message I sent from the phone is not in the chat**
+:   If Claude was busy, the CLI queued it; the chat shows it as a faded
+    "Queued" bubble until the turn ends. If the bubble says "Could not
+    send", the daemon could not type into the pane; the reason is on the
+    bubble and **Retry** sends it again. A message that shows neither way
+    was typed into a terminal the app is not following; check the terminal
+    view.
 
 **A run card stays on "running", or the terminal shows a dead window**
 :   The daemon that started the run has restarted, usually because the

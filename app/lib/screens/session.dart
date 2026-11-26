@@ -22,6 +22,27 @@ class _SendError implements Exception {
   String toString() => message;
 }
 
+/// Where a message sent from this phone stands until the transcript has it.
+enum _OutState { sending, queued, sent, failed }
+
+/// A message this phone sent that the transcript does not show yet.
+class _Outgoing {
+  _Outgoing(this.id, this.text) : sentAt = DateTime.now();
+  final int id;
+  final String text;
+  final DateTime sentAt;
+  _OutState state = _OutState.sending;
+  String? error;
+  late final String norm = normalizeMessage(text);
+}
+
+/// [t] trimmed with each run of whitespace collapsed to one space, the
+/// form sent messages, queued messages and transcript text are matched in.
+String normalizeMessage(String t) => t.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+/// After this long an unmatched message offers Dismiss.
+const _outboxStale = Duration(minutes: 10);
+
 class SessionScreen extends StatefulWidget {
   const SessionScreen({super.key, required this.client, required this.sessionKey});
   final DaemonClient client;
@@ -61,6 +82,13 @@ class _SessionScreenState extends State<SessionScreen> {
   /// The run whose tmux window the terminal view shows instead of the
   /// session's own pane; null for the session pane.
   Run? _runPane;
+
+  /// Messages sent from here that have not shown up in the transcript yet.
+  final List<_Outgoing> _outbox = [];
+  int _outboxSeq = 0;
+  /// Rebuilds now and then while the outbox has entries, so an old one
+  /// grows its Dismiss.
+  Timer? _outboxTick;
 
   Session? get _session => widget.client.sessions[_key];
 
@@ -149,7 +177,9 @@ class _SessionScreenState extends State<SessionScreen> {
       _screen = null;
       _paneError = null;
       _runPane = null;
+      _outbox.clear();
     });
+    _syncOutboxTick();
     widget.client.unsubscribe(old);
     if (_terminal) widget.client.unsubscribePane(old);
     _subscribe();
@@ -212,13 +242,17 @@ class _SessionScreenState extends State<SessionScreen> {
 
   void _append(List<Event> evs, {bool initial = false}) {
     setState(() {
+      final added = <Event>[];
       for (final e in evs) {
         // A reconnect replays recent history; keep only what is new.
         if (!initial && e.seq > 0 && _events.isNotEmpty && e.seq <= _events.last.seq) continue;
         if (e.type == 'tool.result' && e.resultFor != null) _results[e.resultFor!] = e;
         _events.add(e);
+        added.add(e);
       }
+      _matchOutbox(added, initial: initial);
     });
+    _syncOutboxTick();
     if (initial || _stickToBottom) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
@@ -321,6 +355,16 @@ class _SessionScreenState extends State<SessionScreen> {
     return s.status == 'idle' || (s.status == 'waiting_input' && s.question == null);
   }
 
+  /// Why Run with ! has to wait: the CLI holds messages that would go
+  /// ahead of the command. Null when nothing is queued.
+  String? get _bangBlocked {
+    final n = _session?.queued.length ?? 0;
+    if (n == 0) return null;
+    return n == 1
+        ? '1 message is queued ahead of this; wait for it to send, or use Run in a window.'
+        : '$n messages are queued ahead of this; wait for them to send, or use Run in a window.';
+  }
+
   /// Runs a shell block from the chat after the person confirms it.
   Future<void> _runFromChat(String command, RunMode mode) async {
     final feed = await showModalBottomSheet<bool>(
@@ -332,21 +376,18 @@ class _SessionScreenState extends State<SessionScreen> {
     if (feed == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     if (mode == RunMode.bang) {
+      final blocked = _bangBlocked;
+      if (blocked != null) {
+        _toast(blocked);
+        return;
+      }
       if (!_canBang) {
         _toast('The session is busy; use Run in a window');
         return;
       }
-      try {
-        await _sendText('!$command', enter: true);
-      } on _SendError catch (e) {
-        _toast('Command not sent: ${e.message}');
-        return;
-      }
-      if (!mounted) return;
-      setState(() => _stickToBottom = true);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-      });
+      // The outbox bubble shows the command until it lands, and a failure
+      // with Retry.
+      await _sendFromChat('!$command');
       return;
     }
     try {
@@ -391,6 +432,104 @@ class _SessionScreenState extends State<SessionScreen> {
   }
 
     Future<void> _sendText(String text, {required bool enter}) => _guard(widget.client.sendText(_key, text, enter: enter));
+
+  /// Sends [text] with Enter and shows it at the bottom of the chat until
+  /// the transcript has it. A failure stays on the bubble with Retry, so
+  /// the caller (the chat composer) can clear its field. With [rethrowError]
+  /// a failure instead drops the bubble and throws, for the terminal
+  /// composer, which keeps its draft and shows the error itself.
+  Future<void> _sendFromChat(String text, {bool rethrowError = false}) async {
+    final o = _Outgoing(++_outboxSeq, text);
+    setState(() {
+      _outbox.add(o);
+      _stickToBottom = true;
+    });
+    _syncOutboxTick();
+    _scrollToEnd();
+    final err = await _deliver(o);
+    if (err != null && rethrowError) {
+      if (mounted) setState(() => _outbox.remove(o));
+      _syncOutboxTick();
+      throw err;
+    }
+  }
+
+  /// Sends an outbox entry and records how it went; returns the error.
+  Future<_SendError?> _deliver(_Outgoing o) async {
+    final key = _key;
+    _SendError? err;
+    try {
+      await _sendText(o.text, enter: true);
+    } on _SendError catch (e) {
+      err = e;
+    }
+    // Gone already: the transcript caught up first, or the screen moved on.
+    if (!mounted || key != _key || !_outbox.contains(o)) return err;
+    setState(() {
+      if (err != null) {
+        o.state = _OutState.failed;
+        o.error = err.message;
+      } else {
+        o.state = _session?.status == 'busy' ? _OutState.queued : _OutState.sent;
+      }
+    });
+    return err;
+  }
+
+  void _retryOutgoing(_Outgoing o) {
+    setState(() {
+      o.state = _OutState.sending;
+      o.error = null;
+    });
+    _deliver(o);
+  }
+
+  void _dismissOutgoing(_Outgoing o) {
+    setState(() => _outbox.remove(o));
+    _syncOutboxTick();
+  }
+
+  /// Drops the outbox entries the transcript now shows: a user message
+  /// with the same text (or starting with it, as the CLI may append to a
+  /// paste), or for `!cmd` the command it ran. Each event settles at most
+  /// one entry, the oldest. On the initial load the transcript holds older
+  /// history too, so only events from around the send or later count.
+  void _matchOutbox(List<Event> evs, {bool initial = false}) {
+    if (_outbox.isEmpty) return;
+    for (final e in evs) {
+      final o = _outbox.where((o) => _outboxMatches(o, e) && (!initial || e.ts == null || !e.ts!.isBefore(o.sentAt.subtract(const Duration(minutes: 2))))).firstOrNull;
+      if (o != null) _outbox.remove(o);
+      if (_outbox.isEmpty) return;
+    }
+  }
+
+  static bool _outboxMatches(_Outgoing o, Event e) {
+    final n = o.norm;
+    if (n.isEmpty) return false;
+    if (e.type == 'user') {
+      final t = normalizeMessage(e.text);
+      return t == n || t.startsWith(n);
+    }
+    if (e.type == 'command' && n.startsWith('!')) return normalizeMessage(e.text) == normalizeMessage(n.substring(1));
+    return false;
+  }
+
+  void _syncOutboxTick() {
+    if (_outbox.isEmpty || !mounted) {
+      _outboxTick?.cancel();
+      _outboxTick = null;
+      return;
+    }
+    _outboxTick ??= Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _scrollToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+    });
+  }
 
   /// Puts text in the composer (from the agent view) and rebuilds it so the
   /// field shows it.
@@ -474,6 +613,7 @@ class _SessionScreenState extends State<SessionScreen> {
   void dispose() {
     widget.client.removeListener(_onClient);
     _retry?.cancel();
+    _outboxTick?.cancel();
     _evSub?.cancel();
     _paneSub?.cancel();
     _replacedSub?.cancel();
@@ -610,7 +750,7 @@ class _SessionScreenState extends State<SessionScreen> {
               hint: s?.status == 'waiting_input' ? 'The session is waiting for you' : 'Message ${s?.provider == 'codex' ? 'Codex' : 'Claude'}',
               initialText: client.composerDrafts[_key] ?? '',
               onChanged: (t) => client.setComposerDraft(_key, t),
-              onSend: (t) => _sendText(t, enter: true),
+              onSend: _sendFromChat,
               onUpload: _upload,
             ),
           if (_terminal && _runPane == null)
@@ -622,7 +762,7 @@ class _SessionScreenState extends State<SessionScreen> {
               hint: 'Type into the terminal',
               initialText: client.composerDrafts[_key] ?? '',
               onChanged: (t) => client.setComposerDraft(_key, t),
-              onSend: (t) => _sendText(t, enter: true),
+              onSend: (t) => _sendFromChat(t, rethrowError: true),
             ),
         ]),
       ),
@@ -657,25 +797,69 @@ class _SessionScreenState extends State<SessionScreen> {
     );
   }
 
+  /// The messages on their way in, below the transcript: what the daemon
+  /// says the CLI is holding, in its order, then what this phone sent that
+  /// the daemon does not list. A message in both shows once.
+  List<Widget> _pendingBubbles() {
+    final s = _session;
+    final queuedLabel = 'Queued · sends when ${s?.provider == 'codex' ? 'Codex' : 'Claude'} finishes the current turn';
+    final left = List.of(_outbox);
+    final out = <Widget>[];
+    final daemon = s?.queued ?? const <String>[];
+    for (var i = 0; i < daemon.length; i++) {
+      final n = normalizeMessage(daemon[i]);
+      final mine = left.where((o) => o.norm == n && o.state != _OutState.failed).firstOrNull;
+      if (mine != null) left.remove(mine);
+      out.add(PendingBubble(key: ValueKey('queued-$i'), text: mine?.text ?? daemon[i], label: queuedLabel));
+    }
+    final now = DateTime.now();
+    for (final o in left) {
+      final stale = now.difference(o.sentAt) >= _outboxStale;
+      out.add(switch (o.state) {
+        _OutState.sending => PendingBubble(key: ValueKey('outbox-${o.id}'), text: o.text, label: 'Sending…'),
+        _OutState.failed => PendingBubble(
+            key: ValueKey('outbox-${o.id}'),
+            text: o.text,
+            label: 'Could not send: ${o.error ?? 'unknown error'}',
+            error: true,
+            actions: [
+              TextButton(onPressed: () => _retryOutgoing(o), child: const Text('Retry')),
+              TextButton(onPressed: () => _dismissOutgoing(o), child: const Text('Dismiss')),
+            ],
+          ),
+        _ => PendingBubble(
+            key: ValueKey('outbox-${o.id}'),
+            text: o.text,
+            label: '${o.state == _OutState.queued ? queuedLabel : 'Sent'}${stale ? ' · tap to dismiss' : ''}',
+            onLabelTap: stale ? () => _dismissOutgoing(o) : null,
+          ),
+      });
+    }
+    return out;
+  }
+
   Widget _chatBody() {
     final s = _session;
-    if (_events.isEmpty && (_starting || (s?.pending ?? false))) return _startingBody(s);
-    if (_loading && _events.isEmpty) return const Center(child: CircularProgressIndicator());
+    final pending = _pendingBubbles();
+    if (_events.isEmpty && pending.isEmpty && (_starting || (s?.pending ?? false))) return _startingBody(s);
+    if (_loading && _events.isEmpty && pending.isEmpty) return const Center(child: CircularProgressIndicator());
     if (_error != null && _events.isEmpty) {
       return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [Text(_error!), const SizedBox(height: 12), FilledButton(onPressed: _subscribe, child: const Text('Retry'))])));
     }
-    if (_events.isEmpty) {
+    if (_events.isEmpty && pending.isEmpty) {
       return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Nothing in the transcript yet. Send a message to begin, or switch to the terminal view.', textAlign: TextAlign.center)));
     }
+    final bangBlocked = _bangBlocked;
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.only(top: 8, bottom: 12),
-      itemCount: _events.length + 2,
+      itemCount: _events.length + pending.length + 2,
       itemBuilder: (context, i) {
         if (i == 0) {
           return _loadingMore ? const Center(child: Padding(padding: EdgeInsets.all(8), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))) : (_hasMore ? TextButton(onPressed: _loadMore, child: const Text('Load earlier')) : const SizedBox(height: 4));
         }
-        if (i == _events.length + 1) {
+        if (i > _events.length && i <= _events.length + pending.length) return pending[i - _events.length - 1];
+        if (i == _events.length + pending.length + 1) {
           if (s != null && s.running && s.status == 'busy') {
             return const Padding(padding: EdgeInsets.fromLTRB(16, 8, 16, 8), child: Row(children: [SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 10), Text('Working…', style: TextStyle(fontSize: 12))]));
           }
@@ -688,6 +872,7 @@ class _SessionScreenState extends State<SessionScreen> {
           showThinking: _showThinking,
           onRun: (s?.controllable ?? false) ? _runFromChat : null,
           canBang: _canBang,
+          bangBlockedReason: bangBlocked,
           client: widget.client,
           sessionKey: _key,
         );

@@ -46,6 +46,10 @@ type Session struct {
 	// PermissionMode is the Claude Code mode (default, acceptEdits, plan, auto,
 	// dontAsk, bypassPermissions) from the last hook or the status bar.
 	PermissionMode string `json:"permission_mode,omitempty"`
+	// Queued holds the messages the CLI keeps until the current turn ends,
+	// in send order, read from the screen; they are not in the transcript
+	// until submitted.
+	Queued []string `json:"queued,omitempty"`
 	// LastDenied records the most recent action auto mode refused, which the
 	// CLI reports through the PermissionDenied hook without opening a dialog.
 	LastDenied *DeniedTool `json:"last_denied,omitempty"`

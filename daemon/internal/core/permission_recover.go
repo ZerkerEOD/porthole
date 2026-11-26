@@ -405,6 +405,7 @@ func (r *Registry) readScreen(key string, scr *tmux.Screen, question bool) {
 	if m, ok := parseModeLine(scr.Lines); ok {
 		r.SetPermissionMode(key, m)
 	}
+	r.SetQueued(key, parseQueued(scr.Lines))
 	if r.perm.hasHookPending(key) {
 		return // the terminal draws nothing while the hook is held
 	}

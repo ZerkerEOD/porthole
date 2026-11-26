@@ -80,6 +80,7 @@ class _KeyBar extends StatelessWidget {
       ('^D', ['C-d']),
       ('^U', ['C-u']),
       ('S-Tab', ['BTab']),
+      ('Send now', ['C-x', 'C-s']),
       ('PgUp', ['PageUp']),
       ('PgDn', ['PageDown']),
     ];

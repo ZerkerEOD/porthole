@@ -70,6 +70,9 @@ at the keyboard.
   [Running a suggested command](../guide/sessions.md#running-a-suggested-command).
   Commands run with `!`, from the phone or at the keyboard, appear in the
   chat as a command block with their output.
+- A message you send while Claude is busy shows at once as a faded bubble
+  marked "Queued", and so do messages queued at the keyboard; see
+  [Messages sent while Claude is busy](../guide/sessions.md#messages-sent-while-claude-is-busy).
 - The **attach** button in the message box sends a photo or a picture from
   the library for Claude to look at. Images in the conversation show inline;
   tap one to see it full size. See [Images](../guide/sessions.md#images).

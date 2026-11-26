@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -54,6 +55,17 @@ func (r *Registry) sendBang(ctx context.Context, key, pane, command string) erro
 	}
 	if strings.ContainsAny(command, "\n\r") {
 		return errors.New("a ! command is a single line")
+	}
+	// Typed behind queued messages, the command would wait for them.
+	scr, err := r.tm.Capture(ctx, pane, 0)
+	if err != nil {
+		return err
+	}
+	if n := len(parseQueued(scr.Lines)); n > 0 {
+		if n == 1 {
+			return errors.New("1 message is queued ahead of this; the command would only be queued behind it")
+		}
+		return fmt.Errorf("%d messages are queued ahead of this; the command would only be queued behind them", n)
 	}
 	// Whether the box is empty cannot be told from the screen alone (the
 	// CLI shows dim hints there), so type the "!" and let the screen say

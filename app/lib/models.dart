@@ -122,6 +122,7 @@ class Session {
         agents = [for (final a in (j['agents'] as List? ?? const [])) AgentInfo.fromJson((a as Map).cast<String, dynamic>())],
         agentsTotal = (j['agents_total'] as num?)?.toInt() ?? 0,
         usage = j['usage'] is Map ? (j['usage'] as Map).cast<String, dynamic>() : null,
+        queued = [for (final q in (j['queued'] as List? ?? const [])) if (q is String) q],
         stale = j['_stale'] as bool? ?? false;
 
   final String key, id, provider, title, cwd, repo, branch, status, model, account, lastPrompt;
@@ -134,6 +135,11 @@ class Session {
   /// most recent finished ones. [agentsTotal] counts them all.
   final List<AgentInfo> agents;
   final int agentsTotal;
+
+  /// Messages the CLI is holding to send when the current turn ends, in
+  /// send order, as the daemon reads them off the terminal. Empty when
+  /// nothing is queued or the daemon does not report it.
+  final List<String> queued;
   int get agentCount => agentsTotal > agents.length ? agentsTotal : agents.length;
   /// The session's own token totals (input_tokens, output_tokens,
   /// cache_read_tokens, cache_creation_tokens), without its subagents.

@@ -488,7 +488,7 @@ func (r *Registry) scan(ctx context.Context) {
 	r.mu.RUnlock()
 	for _, s := range gone {
 		s.Running, s.Controllable, s.PaneID, s.PID, s.Status = false, false, "", 0, transcript.StatusExited
-		s.Question = nil
+		s.Question, s.Queued = nil, nil
 		s.Agents = stopAgents(s.Agents)
 		r.upsert(s)
 	}
@@ -514,6 +514,11 @@ func (r *Registry) finishLive(s *Session, path string) {
 			s.Status = prev.Status
 		}
 		s.Spawned, s.PermissionMode, s.LastDenied = prev.Spawned, prev.PermissionMode, prev.LastDenied
+		// The queue is read off the screen between scans; keep it while the
+		// session can still hold one.
+		if s.Provider == "claude" && s.Running && s.Controllable {
+			s.Queued = prev.Queued
+		}
 		// The dialog stays until a hook or the transcript says it closed;
 		// the CLI touches the file while one is open.
 		if q := prev.Question; q != nil {

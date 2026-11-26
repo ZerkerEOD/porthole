@@ -14,7 +14,7 @@ enum RunMode { bang, window }
 
 /// One chat row. Tool uses and their results are paired by the caller.
 class EventTile extends StatelessWidget {
-  const EventTile({super.key, required this.event, this.result, this.showThinking = false, this.onRun, this.canBang = false, this.client, this.sessionKey});
+  const EventTile({super.key, required this.event, this.result, this.showThinking = false, this.onRun, this.canBang = false, this.bangBlockedReason, this.client, this.sessionKey});
   final Event event;
   final Event? result;
   final bool showThinking;
@@ -31,6 +31,10 @@ class EventTile extends StatelessWidget {
   /// The session is at its prompt, so a `!` command can be typed now.
   final bool canBang;
 
+  /// Why Run with ! is unavailable even though the session could take it
+  /// (messages queued ahead of it); tapping the action shows this.
+  final String? bangBlockedReason;
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -40,9 +44,9 @@ class EventTile extends StatelessWidget {
           alignment: Alignment.centerRight,
           child: Container(
             constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.86),
-            margin: const EdgeInsets.fromLTRB(48, 6, 12, 6),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(color: cs.primaryContainer, borderRadius: BorderRadius.circular(16)),
+            margin: userBubbleMargin,
+            padding: userBubblePadding,
+            decoration: userBubbleDecoration(cs),
             child: event.images.isEmpty
                 ? SelectableText(event.text, style: TextStyle(color: cs.onPrimaryContainer))
                 : Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
@@ -60,7 +64,7 @@ class EventTile extends StatelessWidget {
             GptMarkdown(
               event.text,
               style: Theme.of(context).textTheme.bodyMedium,
-              codeBuilder: (context, name, code, closed) => CodeBlockView(lang: name, code: code, onRun: closed ? onRun : null, canBang: canBang),
+              codeBuilder: (context, name, code, closed) => CodeBlockView(lang: name, code: code, onRun: closed ? onRun : null, canBang: canBang, bangBlockedReason: bangBlockedReason),
               imageBuilder: (context, url, width, height) => _markdownImage(url),
             ),
             if (bare.isNotEmpty)
@@ -131,6 +135,50 @@ class EventTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(children: [const Expanded(child: Divider()), Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text(t, style: Theme.of(context).textTheme.labelSmall)), const Expanded(child: Divider())]),
       );
+}
+
+const userBubbleMargin = EdgeInsets.fromLTRB(48, 6, 12, 6);
+const userBubblePadding = EdgeInsets.symmetric(horizontal: 14, vertical: 10);
+BoxDecoration userBubbleDecoration(ColorScheme cs) => BoxDecoration(color: cs.primaryContainer, borderRadius: BorderRadius.circular(16));
+
+/// A message on its way into the session that the transcript does not
+/// have yet: shaped like the person's own bubble, faded, with a one-line
+/// [label] under it. Tapping the label calls [onLabelTap] when set;
+/// [actions] go under the label (Retry, Dismiss).
+class PendingBubble extends StatelessWidget {
+  const PendingBubble({super.key, required this.text, required this.label, this.error = false, this.onLabelTap, this.actions = const []});
+  final String text;
+  final String label;
+  final bool error;
+  final VoidCallback? onLabelTap;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final caption = Theme.of(context).textTheme.labelSmall?.copyWith(color: error ? cs.error : cs.onSurfaceVariant);
+    final labelText = Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: caption);
+    return Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+      Align(
+        alignment: Alignment.centerRight,
+        child: Opacity(
+          opacity: 0.6,
+          child: Container(
+            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.86),
+            margin: userBubbleMargin.copyWith(bottom: 2),
+            padding: userBubblePadding,
+            decoration: userBubbleDecoration(cs),
+            child: Text(text, style: TextStyle(color: cs.onPrimaryContainer)),
+          ),
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(48, 0, 16, 6),
+        child: onLabelTap == null ? labelText : InkWell(onTap: onLabelTap, child: labelText),
+      ),
+      if (actions.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(48, 0, 8, 6), child: Wrap(spacing: 4, children: actions)),
+    ]);
+  }
 }
 
 Widget _chip(BuildContext context, String t, Color c) => Container(
@@ -507,11 +555,15 @@ String? bangCommand(String command) {
 /// A fenced code block in an assistant message: monospace, scrolls
 /// sideways, with Copy and, for shell, the two ways to run it.
 class CodeBlockView extends StatelessWidget {
-  const CodeBlockView({super.key, required this.lang, required this.code, this.onRun, this.canBang = false});
+  const CodeBlockView({super.key, required this.lang, required this.code, this.onRun, this.canBang = false, this.bangBlockedReason});
   final String lang;
   final String code;
   final void Function(String command, RunMode mode)? onRun;
   final bool canBang;
+
+  /// Set when Run with ! must wait for something else (messages queued
+  /// ahead of it): the action shows as unavailable and a tap explains why.
+  final String? bangBlockedReason;
 
   @override
   Widget build(BuildContext context) {
@@ -520,7 +572,7 @@ class CodeBlockView extends StatelessWidget {
     final run = onRun;
     final command = run == null ? null : shellCommand(lang, text);
     final bang = command == null ? null : bangCommand(command);
-    Widget tool(Key key, IconData icon, String tip, VoidCallback? onTap) => Tooltip(
+    Widget tool(Key key, IconData icon, String tip, VoidCallback? onTap, {bool dim = false}) => Tooltip(
       message: tip,
       child: IconButton(
         key: key,
@@ -528,10 +580,11 @@ class CodeBlockView extends StatelessWidget {
         iconSize: 16,
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-        icon: Icon(icon),
+        icon: Icon(icon, color: dim ? Theme.of(context).disabledColor : null),
         onPressed: onTap,
       ),
     );
+    final blocked = bangBlockedReason;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -547,7 +600,15 @@ class CodeBlockView extends StatelessWidget {
                   child: Text(lang.trim(), style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
                 ),
               ),
-              if (command != null && bang != null)
+              if (command != null && bang != null && blocked != null)
+                tool(
+                  const ValueKey('run-bang'),
+                  Icons.play_arrow,
+                  blocked,
+                  () => ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(blocked))),
+                  dim: true,
+                )
+              else if (command != null && bang != null)
                 tool(
                   const ValueKey('run-bang'),
                   Icons.play_arrow,

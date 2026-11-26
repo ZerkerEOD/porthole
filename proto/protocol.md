@@ -74,9 +74,9 @@ that source out for a minute.
 
 ## Types
 
-**Session** `{key, id, provider: claude|codex, title, cwd, repo, branch, profile, status, running, controllable, pane_id?, tmux_session?, pid?, kind?, model?, account?, last_prompt?, started_at, updated_at, size?, spawned?, pending?, question?, permission_mode?, last_denied?, agents?:[AgentInfo], agents_total?, usage?:Usage}`
+**Session** `{key, id, provider: claude|codex, title, cwd, repo, branch, profile, status, running, controllable, pane_id?, tmux_session?, pid?, kind?, model?, account?, last_prompt?, started_at, updated_at, size?, spawned?, pending?, question?, permission_mode?, queued?:[string], last_denied?, agents?:[AgentInfo], agents_total?, usage?:Usage}`
 
-`permission_mode` is the Claude Code mode (`default acceptEdits plan auto dontAsk bypassPermissions`) from the last hook or the status bar. `last_denied` `{tool, at}` is the last action auto mode refused. `agents` lists the session's subagents (every running one and the 40 most recent finished; `agents_total` counts all), `usage` the session's own token totals without them. A session whose transcript is idle but has running subagents or pending background tasks reports `busy`.
+`permission_mode` is the Claude Code mode (`default acceptEdits plan auto dontAsk bypassPermissions`) from the last hook or the status bar. `last_denied` `{tool, at}` is the last action auto mode refused. `queued` lists the messages the CLI holds until the current turn ends, in send order; it is read from the screen, only for controllable Claude sessions, and empties when the turn ends and the CLI submits them. `agents` lists the session's subagents (every running one and the 40 most recent finished; `agents_total` counts all), `usage` the session's own token totals without them. A session whose transcript is idle but has running subagents or pending background tasks reports `busy`.
 
 **AgentInfo** `{id, type, description, tool_use_id?, background, finished, running, started_at?, updated_at?, turns, tool_uses, usage:Usage, model?, last_text?}`. **Usage** `{input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens}` (all omitempty).
 
