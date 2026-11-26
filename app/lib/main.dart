@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'attention.dart';
 import 'foreground.dart';
 import 'notifications.dart';
+import 'prefs.dart';
 import 'push.dart';
 import 'screens/home.dart';
 import 'screens/session.dart';
@@ -18,12 +19,14 @@ Future<void> main() async {
   final store = AppStore();
   final push = PushService(store);
   final watcher = AttentionWatcher(store);
+  final chatPrefs = ChatPrefs();
   store.onMuteChanged = push.onMuteChanged;
   await Notifier.instance.init();
   await BackgroundLink.init();
   store.load();
   push.init();
   watcher.start();
+  await chatPrefs.load();
   Notifier.instance.onTap = (key) => openSession(store, key);
   final launch = Notifier.instance.launchPayload;
   if (launch != null && launch.isNotEmpty) _openWhenReady(store, launch);
@@ -32,6 +35,7 @@ Future<void> main() async {
       ChangeNotifierProvider.value(value: store),
       ChangeNotifierProvider.value(value: push),
       Provider.value(value: watcher),
+      ChangeNotifierProvider.value(value: chatPrefs),
     ],
     child: const PortholeApp(),
   ));

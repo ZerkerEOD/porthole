@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../client.dart';
 import '../main.dart';
@@ -229,7 +231,14 @@ class AgentScreen extends StatefulWidget {
 class _AgentScreenState extends State<AgentScreen> {
   final _events = <Event>[];
   final _results = <String, Event>{};
-  final _scroll = ScrollController();
+  // Items: 0 the Load earlier row, 1..N the events, then an empty end
+  // marker the list is anchored on (alignment 1.0) while it follows the end.
+  final _itemScroll = ItemScrollController();
+  final _positions = ItemPositionsListener.create();
+  bool _stickToBottom = true, _anchoredAtEnd = true, _pinScheduled = false;
+  bool _userScrolling = false, _userMoved = false;
+  int _anchorCount = -1, _itemCount = 0;
+  final _tileKeys = Expando<GlobalKey>();
   StreamSubscription<(String, String, List<Event>)>? _sub;
   bool _loading = true, _hasMore = false, _loadingMore = false;
   String? _error;
@@ -241,14 +250,15 @@ class _AgentScreenState extends State<AgentScreen> {
       final (key, id, evs) = e;
       if (key == widget.sessionKey && id == widget.agent.id) _append(evs);
     });
+    _positions.itemPositions.addListener(_onPositions);
     _subscribe();
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _positions.itemPositions.removeListener(_onPositions);
     unawaited(widget.client.unsubscribeAgent(widget.sessionKey, widget.agent.id));
-    _scroll.dispose();
     super.dispose();
   }
 
@@ -275,6 +285,19 @@ class _AgentScreenState extends State<AgentScreen> {
     setState(() => _loadingMore = true);
     try {
       final (evs, more) = await widget.client.agentHistory(widget.sessionKey, widget.agent.id, before: _events.first.seq, limit: 150);
+      if (!mounted) return;
+      // Keep the top visible event in place as the indices shift.
+      final top = _positions.itemPositions.value.where((p) => p.index >= 1).fold<ItemPosition?>(null, (a, p) => a == null || p.index < a.index ? p : a);
+      if (!_stickToBottom && top != null && evs.isNotEmpty) {
+        final target = top.index + evs.length;
+        if (target <= _itemCount - 1) {
+          _jumpTo(target, top.itemLeadingEdge);
+        } else {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _jumpTo(target, top.itemLeadingEdge);
+          });
+        }
+      }
       setState(() {
         _events.insertAll(0, evs);
         for (final e in evs) {
@@ -301,9 +324,63 @@ class _AgentScreenState extends State<AgentScreen> {
         }
       }
     });
+    // A list at the end follows: the build re-anchors it on the new count.
+  }
+
+  void _jumpTo(int index, double alignment) {
+    if (!_itemScroll.isAttached) return;
+    _anchoredAtEnd = false;
+    _itemScroll.jumpTo(index: index, alignment: alignment);
+  }
+
+  /// Anchors the list on the end marker, now or after the next frame.
+  void _pinToEnd({bool now = false}) {
+    if (now) {
+      if (!mounted || !_itemScroll.isAttached || _itemCount == 0) return;
+      if (_anchoredAtEnd && _anchorCount == _itemCount) return;
+      _anchoredAtEnd = true;
+      _anchorCount = _itemCount;
+      _itemScroll.jumpTo(index: _itemCount - 1, alignment: 1.0);
+      return;
+    }
+    if (_pinScheduled) return;
+    _pinScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      _pinScheduled = false;
+      if (_stickToBottom) _pinToEnd(now: true);
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _onPositions() {
+    final ps = _positions.itemPositions.value;
+    if (ps.isEmpty || _itemCount == 0) return;
+    final user = _userScrolling || _userMoved;
+    _userMoved = false;
+    final last = ps.where((p) => p.index == _itemCount - 2).firstOrNull;
+    final atBottom = last != null && last.itemTrailingEdge <= 1.02;
+    if (!user && _stickToBottom && !atBottom) _pinToEnd(now: true);
+    if (atBottom != _stickToBottom && (atBottom || user)) setState(() => _stickToBottom = atBottom);
+    if (ps.any((p) => p.index == 0) && _hasMore && !_loadingMore && !_loading) _loadMore();
+  }
+
+  bool _onScroll(Notification n) {
+    if (n is ScrollNotification && (n.depth != 0 || n.metrics.axis != Axis.vertical)) return false;
+    if (n is ScrollMetricsNotification && (n.depth != 0 || n.metrics.axis != Axis.vertical)) return false;
+    if (n is UserScrollNotification && n.direction != ScrollDirection.idle) {
+      _userScrolling = true;
+      _userMoved = true;
+      _anchoredAtEnd = false;
+    } else if (n is ScrollUpdateNotification && n.dragDetails != null) {
+      _userMoved = true;
+      _anchoredAtEnd = false;
+    } else if (n is ScrollEndNotification) {
+      _userScrolling = false;
+      if (_stickToBottom) _pinToEnd();
+    } else if (n is ScrollMetricsNotification) {
+      if (_stickToBottom && !_userScrolling) _pinToEnd();
+    }
+    return false;
   }
 
   @override
@@ -381,24 +458,38 @@ class _AgentScreenState extends State<AgentScreen> {
         child: Padding(padding: EdgeInsets.all(24), child: Text('Nothing written yet.')),
       );
     }
-    return ListView.builder(
-      controller: _scroll,
-      padding: const EdgeInsets.only(top: 8, bottom: 12),
-      itemCount: _events.length + 1,
-      itemBuilder: (context, i) {
-        if (i == 0) {
-          return _loadingMore
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(8),
-                    child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                  ),
-                )
-              : (_hasMore ? TextButton(onPressed: _loadMore, child: const Text('Load earlier')) : const SizedBox(height: 4));
-        }
-        final e = _events[i - 1];
-        return EventTile(event: e, result: e.tool != null ? _results[e.tool!.id] : null, showThinking: false, client: widget.client, sessionKey: widget.sessionKey);
-      },
+    final count = _events.length + 2;
+    _itemCount = count;
+    if (_anchoredAtEnd && _anchorCount < 0) _anchorCount = count;
+    if (_stickToBottom && !(_anchoredAtEnd && _anchorCount == count)) _pinToEnd();
+    return NotificationListener<Notification>(
+      onNotification: _onScroll,
+      child: ScrollablePositionedList.builder(
+        itemScrollController: _itemScroll,
+        itemPositionsListener: _positions,
+        initialScrollIndex: count - 1,
+        initialAlignment: 1.0,
+        itemCount: count,
+        itemBuilder: (context, i) {
+          if (i == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: _loadingMore
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(8),
+                        child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
+                    )
+                  : (_hasMore ? TextButton(onPressed: _loadMore, child: const Text('Load earlier')) : const SizedBox(height: 4)),
+            );
+          }
+          if (i == count - 1) return const SizedBox.shrink();
+          final e = _events[i - 1];
+          final tile = EventTile(key: _tileKeys[e] ??= GlobalKey(), event: e, result: e.tool != null ? _results[e.tool!.id] : null, showThinking: false, client: widget.client, sessionKey: widget.sessionKey);
+          return i == count - 2 ? Padding(padding: const EdgeInsets.only(bottom: 12), child: tile) : tile;
+        },
+      ),
     );
   }
 }

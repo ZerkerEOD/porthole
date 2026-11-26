@@ -10,6 +10,7 @@ import '../config.dart';
 import '../foreground.dart';
 import '../push.dart';
 import '../main.dart';
+import '../prefs.dart';
 import '../store.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -32,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final push = context.watch<PushService>();
     final watcher = context.read<AttentionWatcher>();
     final store = context.watch<AppStore>();
+    final chat = context.watch<ChatPrefs>();
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(children: [
@@ -40,6 +42,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: const Text('What the icons mean'),
           subtitle: const Text('Session and machine states, one line each'),
           onTap: () => showLegendSheet(context),
+        ),
+        const Divider(),
+        const _Header('Chat'),
+        ListTile(
+          title: const Text('Open chats at'),
+          subtitle: Text(chat.openAt.label),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => showOpenAtSheet(context, chat),
         ),
         const Divider(),
         const _Header('Notifications'),
@@ -146,6 +156,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ]),
     );
   }
+}
+
+/// The choice of where a chat opens, as a sheet of three options.
+Future<void> showOpenAtSheet(BuildContext context, ChatPrefs chat) async {
+  final picked = await showModalBottomSheet<OpenAt>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => SafeArea(
+      child: RadioGroup<OpenAt>(
+        groupValue: chat.openAt,
+        onChanged: (v) => Navigator.of(context).pop(v),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 8), child: Align(alignment: Alignment.centerLeft, child: Text('Open chats at', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)))),
+          for (final o in OpenAt.values) RadioListTile<OpenAt>(value: o, title: Text(o.label), subtitle: Text(o.description)),
+        ]),
+      ),
+    ),
+  );
+  if (picked != null) await chat.setOpenAt(picked);
 }
 
 class _Header extends StatelessWidget {

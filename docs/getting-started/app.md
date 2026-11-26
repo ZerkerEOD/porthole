@@ -46,7 +46,9 @@ machine. A machine's menu offers **Connect now**, **Accounts & usage**,
 
 The session screen renders the conversation from the CLI's own transcript:
 prompts, replies, tool calls and results, and with **Show thinking** the
-model's thinking. Scroll up to **Load earlier**. The input bar types into the
+model's thinking. It opens at the bottom unless you change **Open chats at**
+in Settings, and while you are at the bottom it stays there as new messages
+and images arrive. Scroll up to **Load earlier**. The input bar types into the
 session's tmux window, so slash commands and your own skills work as they do
 at the keyboard.
 
@@ -117,6 +119,11 @@ reports them. Pull down to refresh; the back arrow returns to the list.
 
 ### Settings
 
+- **Open chats at** chooses where a conversation opens: **Bottom** (the
+  newest message, the default), **Top of the last message** (the start of
+  Claude's latest reply), or **Last read position** (where you left off,
+  with a thin "New since you were here" line above anything that arrived
+  since). The position is remembered on the phone for each session.
 - **Notify while connected** shows local notifications for permission prompts
   and input requests while the app is open or kept alive.
 - **Stay connected in the background** (Android) runs a foreground service

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:porthole/screens/agents.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import 'chat_helpers.dart' show ev;
 import 'fakes.dart';
 
 Map<String, dynamic> agent(String id, {bool running = false, bool finished = true}) => {
@@ -55,6 +57,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(prefill, startsWith('About the agent working on "Add the cache step"'));
     expect(c.sent('agent.unsubscribe').single['agent_id'], 'x');
+    await finish(tester, c);
+  });
+
+  testWidgets('the agent transcript keeps its newest event at the bottom', (tester) async {
+    final c = FakeClient();
+    c.inject('hello', {'name': 'desk', 'version': '1', 'sessions': [{...session('claude:a3'), 'agents': [agent('x', running: true, finished: false)]}]});
+    final s = c.sessions['claude:a3']!;
+    await tester.pumpWidget(MaterialApp(home: AgentScreen(client: c, sessionKey: 'claude:a3', agent: s.agents.first)));
+    await tester.pump();
+    await tester.pump();
+    c.inject('agent.events', {'key': 'claude:a3', 'agent_id': 'x', 'events': [for (var i = 1; i <= 60; i++) ev(i, 'user')]});
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    final list = tester.getRect(find.byType(ScrollablePositionedList));
+    bool showsAtBottom(int seq) {
+      final r = tester.getRect(find.textContaining('Event $seq line 0'));
+      return r.bottom <= list.bottom && r.bottom > list.bottom - 80;
+    }
+
+    expect(showsAtBottom(60), isTrue);
+    c.inject('agent.events', {'key': 'claude:a3', 'agent_id': 'x', 'events': [ev(61, 'user', lines: 3)]});
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(showsAtBottom(61), isTrue);
     await finish(tester, c);
   });
 }

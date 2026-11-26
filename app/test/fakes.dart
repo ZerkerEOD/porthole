@@ -8,7 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:porthole/client.dart';
 import 'package:porthole/models.dart';
+import 'package:porthole/prefs.dart';
 import 'package:porthole/screens/session.dart';
+import 'package:provider/provider.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 DaemonInfo info() => DaemonInfo(id: 'm', name: 'desk', hosts: ['10.0.0.2'], port: 7433, fingerprint: 'fp', token: 't', deviceId: 'd');
 
@@ -128,10 +131,14 @@ class FakeClient extends DaemonClient {
   List<Map<String, dynamic>> sent(String type) => [for (final r in requests) if (r.$1 == type) r.$2];
 }
 
-Future<FakeClient> pumpSession(WidgetTester tester, String key, {List<Map<String, dynamic>>? sessions, FakeClient? client}) async {
+/// Opens the session screen. With [prefs] the screen sees them through a
+/// provider, as in the app; [positions] reports the chat items on screen.
+Future<FakeClient> pumpSession(WidgetTester tester, String key, {List<Map<String, dynamic>>? sessions, FakeClient? client, ChatPrefs? prefs, ItemPositionsListener? positions}) async {
   final c = client ?? FakeClient();
   c.inject('hello', {'name': 'desk', 'version': '1', 'sessions': sessions ?? [session(key)]});
-  await tester.pumpWidget(MaterialApp(home: SessionScreen(client: c, sessionKey: key)));
+  Widget app = MaterialApp(home: SessionScreen(client: c, sessionKey: key, positionsListener: positions));
+  if (prefs != null) app = ChangeNotifierProvider.value(value: prefs, child: app);
+  await tester.pumpWidget(app);
   await tester.pump();
   await tester.pump();
   return c;

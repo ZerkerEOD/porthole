@@ -123,6 +123,18 @@ header notes the last one ("Auto mode blocked Bash, 2m ago") and the terminal
 lists them under `/permissions`. After several blocks Claude Code pauses auto
 mode and prompts normally, which the app then shows as above.
 
+## Where a chat opens
+
+A chat opens at the bottom, and stays pinned there while you are at the
+bottom, so new messages and images that finish loading never leave you a
+screen above the end. **Open chats at** in Settings can change that to the
+top of Claude's latest reply, or to where you left off: the app remembers,
+per session and only on the phone, which message was at the top of the
+screen when you last scrolled, and draws a thin "New since you were here"
+line above anything that arrived after that. If the remembered message is
+far back, the app loads a few earlier pages to find it, and falls back to
+the bottom with a short note if it cannot.
+
 ## Messages sent while Claude is busy
 
 Claude Code does not interrupt a turn for a new message. Type one while it

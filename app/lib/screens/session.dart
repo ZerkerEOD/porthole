@@ -1,11 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:gpt_markdown/gpt_markdown.dart';
+import 'package:provider/provider.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../client.dart';
 import '../main.dart';
 import '../models.dart';
+import '../prefs.dart';
 import '../widgets/composer.dart';
 import '../widgets/event_tile.dart';
 import '../widgets/run_card.dart';
@@ -43,15 +47,23 @@ String normalizeMessage(String t) => t.trim().replaceAll(RegExp(r'\s+'), ' ');
 /// After this long an unmatched message offers Dismiss.
 const _outboxStale = Duration(minutes: 10);
 
+/// Shown when a chat set to open at the last read position cannot find it.
+const lostReadMarkNotice = "Couldn't find where you left off";
+
+/// Pages of history searched for a read mark before giving up.
+const _markSearchPages = 5;
+
 class SessionScreen extends StatefulWidget {
-  const SessionScreen({super.key, required this.client, required this.sessionKey});
+  const SessionScreen({super.key, required this.client, required this.sessionKey, this.positionsListener});
   final DaemonClient client;
   final String sessionKey;
+  /// Reports which chat items are on screen; for tests.
+  final ItemPositionsListener? positionsListener;
   @override
   State<SessionScreen> createState() => _SessionScreenState();
 }
 
-class _SessionScreenState extends State<SessionScreen> {
+class _SessionScreenState extends State<SessionScreen> with WidgetsBindingObserver {
   final List<Event> _events = [];
   final Map<String, Event> _results = {}; // tool_use_id -> result
   bool _hasMore = false;
@@ -69,8 +81,41 @@ class _SessionScreenState extends State<SessionScreen> {
   String? _paneError;
   List<Skill> _skills = const [];
   StreamSubscription? _evSub, _paneSub, _replacedSub, _noticeSub;
-  final _scroll = ScrollController();
+  // The chat list. Items: 0 the Load earlier row, 1..N the events, then
+  // the pending bubbles, the Working row, and an empty end marker that the
+  // list is anchored on (alignment 1.0) to keep the newest message at the
+  // bottom whatever grows above it.
+  final _itemScroll = ItemScrollController();
+  late final ItemPositionsListener _positions = widget.positionsListener ?? ItemPositionsListener.create();
   bool _stickToBottom = true;
+  /// True once the list sits on the end marker with [_anchorCount] items;
+  /// cleared when the person scrolls or the list moves elsewhere.
+  bool _anchoredAtEnd = false;
+  int _anchorCount = -1;
+  bool _pinScheduled = false;
+  /// The item count of the last chat build.
+  int _itemCount = 0;
+  /// The person is dragging or flinging the list, or has since the last
+  /// position report.
+  bool _userScrolling = false, _userMoved = false;
+  /// The Go to bottom animation is running.
+  bool _animatingToEnd = false;
+  /// Where the list is built: consumed by the first build of each list
+  /// generation ([_listGen]).
+  int _initialIndex = 0;
+  double _initialAlignment = 0;
+  int _listGen = 0;
+  /// True between subscribing and knowing where to open.
+  bool _opening = true;
+  /// The first event newer than the read mark this chat opened at; the
+  /// "New since you were here" divider goes above it. For this open only.
+  int? _dividerSeq;
+  /// The read position the screen shows now, written on idle, pause,
+  /// leaving and every 10 s.
+  ReadMark? _markCandidate;
+  Timer? _markTimer;
+  /// Keeps each event tile's state when the list re-anchors.
+  final _tileKeys = Expando<GlobalKey>();
   String _key = '';
   /// The spawn placeholder's pane and tmux session, kept so the real
   /// session can be matched even after the placeholder is removed.
@@ -122,11 +167,9 @@ class _SessionScreenState extends State<SessionScreen> {
       if (n.$2 == DaemonClient.runWindowClosedNotice && _runPane != null) setState(() => _runPane = null);
       _toast(n.$2);
     });
-    _scroll.addListener(() {
-      final atBottom = _scroll.position.pixels >= _scroll.position.maxScrollExtent - 40;
-      if (atBottom != _stickToBottom) setState(() => _stickToBottom = atBottom);
-      if (_scroll.position.pixels <= 40 && _hasMore && !_loadingMore) _loadMore();
-    });
+    _positions.itemPositions.addListener(_onPositions);
+    WidgetsBinding.instance.addObserver(this);
+    _markTimer = Timer.periodic(const Duration(seconds: 10), (_) => _recordMark());
     _subscribe();
     _loadSkills();
   }
@@ -167,6 +210,8 @@ class _SessionScreenState extends State<SessionScreen> {
   void _switchTo(String key) {
     if (key == _key || !mounted) return;
     final old = _key;
+    _recordMark();
+    _markCandidate = null;
     widget.client.moveComposerDraft(old, key);
     setState(() {
       _key = key;
@@ -189,15 +234,40 @@ class _SessionScreenState extends State<SessionScreen> {
   Future<void> _subscribe() async {
     setState(() {
       _loading = true;
+      _opening = true;
       _error = null;
     });
     try {
-      final (evs, more) = await widget.client.subscribe(_key, limit: 150);
+      final key = _key;
+      var (evs, more) = await widget.client.subscribe(key, limit: 150);
+      final mode = _openAt();
+      final mark = mode == OpenAt.lastRead ? widget.client.readMarks[key] : null;
+      var lost = false;
+      if (mark != null) {
+        // The mark may be older than the latest page: page back a little.
+        var pages = 0;
+        while (_markIndex(evs, mark) < 0 && more && evs.isNotEmpty && pages < _markSearchPages) {
+          try {
+            final (older, m) = await widget.client.history(key, before: evs.first.seq, limit: 150);
+            if (older.isEmpty) break;
+            evs = [...older, ...evs];
+            more = m;
+          } catch (_) {
+            break;
+          }
+          pages++;
+        }
+        lost = _markIndex(evs, mark) < 0;
+      }
+      if (!mounted || key != _key) return;
       _events.clear();
       _results.clear();
+      _placeOpening(evs, mode, lost ? null : mark);
       _append(evs, initial: true);
       _hasMore = more;
       _starting = false;
+      _opening = false;
+      if (lost && evs.isNotEmpty) _toast(lostReadMarkNotice);
     } catch (e) {
       final s = _session;
       if (s != null && (s.pending || (s.running && '$e'.contains('no transcript')))) {
@@ -217,22 +287,218 @@ class _SessionScreenState extends State<SessionScreen> {
     }
   }
 
+  OpenAt _openAt() {
+    try {
+      return Provider.of<ChatPrefs?>(context, listen: false)?.openAt ?? OpenAt.bottom;
+    } catch (_) {
+      return OpenAt.bottom;
+    }
+  }
+
+  /// The index in [evs] of the event [mark] points at: by transcript id,
+  /// else by seq; -1 when it is not there.
+  static int _markIndex(List<Event> evs, ReadMark mark) {
+    if (mark.id.isNotEmpty) {
+      final i = evs.lastIndexWhere((e) => e.id == mark.id);
+      if (i >= 0) return i;
+    }
+    if (mark.seq > 0) return evs.lastIndexWhere((e) => e.seq == mark.seq);
+    return -1;
+  }
+
+  /// Decides where the new list is built, from the opening setting: the
+  /// end, the first block of the last assistant reply, or [mark].
+  void _placeOpening(List<Event> evs, OpenAt mode, ReadMark? mark) {
+    _listGen++;
+    _dividerSeq = null;
+    var index = -1;
+    var align = 0.0;
+    if (mode == OpenAt.lastMessage) {
+      final last = evs.lastIndexWhere(_isReply);
+      if (last >= 0) {
+        var first = last;
+        final mid = evs[last].messageId;
+        if (mid.isNotEmpty) first = evs.indexWhere((e) => e.messageId == mid && _isReply(e));
+        // Without message ids, the run of reply blocks it ends.
+        if (mid.isEmpty) {
+          while (first > 0 && _isReply(evs[first - 1])) {
+            first--;
+          }
+        }
+        index = first + 1;
+      }
+    } else if (mark != null) {
+      final i = _markIndex(evs, mark);
+      if (i >= 0) {
+        index = i + 1;
+        align = mark.align.clamp(-1.0, 1.0);
+        _dividerSeq = evs.where((e) => e.seq > mark.newestSeq).firstOrNull?.seq;
+      }
+    }
+    if (index < 0) {
+      // The end marker, at the bottom edge.
+      _initialIndex = 1 << 30; // clamped to the last item by the list
+      _initialAlignment = 1.0;
+      _stickToBottom = true;
+      _anchoredAtEnd = true;
+      _anchorCount = -1;
+    } else {
+      _initialIndex = index;
+      _initialAlignment = align;
+      _stickToBottom = false;
+      _anchoredAtEnd = false;
+    }
+  }
+
+  static bool _isReply(Event e) => e.type == 'assistant.text' || e.type == 'assistant.thinking';
+
+  // ---- list position ----
+
+  int get _endIndex => _itemCount - 1;
+  int get _workIndex => _itemCount - 2;
+
+  /// Anchors the list on the end marker, now (from a post-frame callback,
+  /// where the list has its current item count) or after the next frame.
+  void _pinToEnd({bool now = false}) {
+    if (now) {
+      if (!mounted || !_itemScroll.isAttached || _itemCount == 0) return;
+      if (_anchoredAtEnd && _anchorCount == _itemCount) return;
+      _anchoredAtEnd = true;
+      _anchorCount = _itemCount;
+      _itemScroll.jumpTo(index: _endIndex, alignment: 1.0);
+      return;
+    }
+    if (_pinScheduled) return;
+    _pinScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pinScheduled = false;
+      if (_stickToBottom && !_animatingToEnd) _pinToEnd(now: true);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _jumpTo(int index, double alignment) {
+    if (!_itemScroll.isAttached) return;
+    _anchoredAtEnd = false;
+    _itemScroll.jumpTo(index: index, alignment: alignment);
+  }
+
+  void _onPositions() {
+    final ps = _positions.itemPositions.value;
+    if (ps.isEmpty || _opening || _itemCount == 0) return;
+    final user = _userScrolling || _userMoved;
+    _userMoved = false;
+    ItemPosition? work, first;
+    for (final p in ps) {
+      if (p.index == _workIndex) work = p;
+      if (p.index == 0) first = p;
+    }
+    final atBottom = work != null && work.itemTrailingEdge <= 1.02;
+    if (!user && !_animatingToEnd && _itemScroll.isAttached) {
+      if (work != null && work.itemTrailingEdge < 0.995) {
+        // Space under the end: the target sat too close to it.
+        _pinToEnd(now: true);
+      } else if (!_hasMore && first != null && first.itemLeadingEdge > 0.005 && !(work != null && work.itemTrailingEdge - first.itemLeadingEdge <= 1.0)) {
+        // Space over the start of a chat taller than the view. With more
+        // history, the next page fills it instead.
+        _jumpTo(0, 0);
+      } else if (_stickToBottom && !atBottom) {
+        // A position report that is not at the end means the last pin did
+        // not land (or the list moved on); pin again, unconditionally.
+        _anchoredAtEnd = false;
+        _pinToEnd(now: true);
+      }
+    }
+    if (atBottom != _stickToBottom && (atBottom || user)) setState(() => _stickToBottom = atBottom);
+    final m = _markFrom(ps);
+    if (m != null) _markCandidate = m;
+    if (first != null && _hasMore && !_loadingMore && !_loading) _loadMore();
+  }
+
+  bool _onScrollNotification(Notification n) {
+    // Only the chat list's own scrolling, not a code block's.
+    if (n is ScrollNotification && (n.depth != 0 || n.metrics.axis != Axis.vertical)) return false;
+    if (n is ScrollMetricsNotification && (n.depth != 0 || n.metrics.axis != Axis.vertical)) return false;
+    if (n is UserScrollNotification && n.direction != ScrollDirection.idle) {
+      _userScrolling = true;
+      _userMoved = true;
+      _anchoredAtEnd = false;
+    } else if (n is ScrollUpdateNotification && n.dragDetails != null) {
+      _userMoved = true;
+      _anchoredAtEnd = false;
+    } else if (n is ScrollEndNotification) {
+      _userScrolling = false;
+      if (_stickToBottom && !_animatingToEnd) _pinToEnd();
+      _recordMark();
+    } else if (n is ScrollMetricsNotification) {
+      // Something grew or the view changed size without a scroll.
+      if (_stickToBottom && !_animatingToEnd && !_userScrolling) _pinToEnd();
+    }
+    return false;
+  }
+
+  /// The read position [ps] shows: the top visible event and its offset,
+  /// or the last event when the end is in view.
+  ReadMark? _markFrom(Iterable<ItemPosition> ps) {
+    final n = _events.length;
+    if (n == 0) return null;
+    final newest = _events.last.seq;
+    ReadMark at(Event e, double align) => ReadMark(seq: e.seq, id: e.id, align: align, newestSeq: newest);
+    ItemPosition? top;
+    var below = false;
+    for (final p in ps) {
+      if (p.itemTrailingEdge <= 0) continue;
+      if (p.index == n && p.itemTrailingEdge <= 1.02) return at(_events.last, 0);
+      if (p.index > n) below = true;
+      if (p.index < 1 || p.index > n) continue;
+      if (top == null || p.index < top.index) top = p;
+    }
+    if (top == null) return below ? at(_events.last, 0) : null;
+    return at(_events[top.index - 1], top.itemLeadingEdge.clamp(-1.0, 1.0));
+  }
+
+  void _recordMark() {
+    final m = _markCandidate;
+    if (m == null || _opening) return;
+    widget.client.setReadMark(_key, m);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) _recordMark();
+  }
+
   Future<void> _loadMore() async {
     if (_events.isEmpty) return;
     setState(() => _loadingMore = true);
     try {
+      final key = _key;
       final before = _events.first.seq;
-      final (evs, more) = await widget.client.history(_key, before: before, limit: 150);
-      final prevMax = _scroll.position.maxScrollExtent;
+      final (evs, more) = await widget.client.history(key, before: before, limit: 150);
+      if (!mounted || key != _key) return;
+      // The new events go in at the front, which shifts every index: keep
+      // the top visible event where it is by moving the list's anchor with
+      // it. A list at the end re-anchors on the end marker instead.
+      final top = _positions.itemPositions.value.where((p) => p.index >= 1 && p.index <= _events.length).fold<ItemPosition?>(null, (a, p) => a == null || p.index < a.index ? p : a);
+      final shift = evs.length;
+      if (!_stickToBottom && top != null && shift > 0) {
+        final target = top.index + shift;
+        if (target <= _itemCount - 1) {
+          // Fits the current list: move before the rebuild, so no frame
+          // shows the wrong items.
+          _jumpTo(target, top.itemLeadingEdge);
+        } else {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _jumpTo(target, top.itemLeadingEdge);
+          });
+        }
+      }
       setState(() {
         _events.insertAll(0, evs);
         for (final e in evs) {
           if (e.type == 'tool.result' && e.resultFor != null) _results[e.resultFor!] = e;
         }
         _hasMore = more;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.pixels + (_scroll.position.maxScrollExtent - prevMax));
       });
     } catch (_) {
     } finally {
@@ -253,11 +519,8 @@ class _SessionScreenState extends State<SessionScreen> {
       _matchOutbox(added, initial: initial);
     });
     _syncOutboxTick();
-    if (initial || _stickToBottom) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
-      });
-    }
+    // A list at the end follows: the chat build re-anchors it when the
+    // item count changes.
   }
 
   Future<void> _loadSkills() async {
@@ -299,6 +562,7 @@ class _SessionScreenState extends State<SessionScreen> {
 
   void _toggleTerminal() {
     final on = !_terminal;
+    if (on) _keepPlace();
     setState(() {
       _terminal = on;
       _screen = null;
@@ -313,8 +577,26 @@ class _SessionScreenState extends State<SessionScreen> {
     }
   }
 
+  /// Notes where the chat list is, so the list built when the chat comes
+  /// back opens there.
+  void _keepPlace() {
+    _listGen++;
+    if (_stickToBottom) {
+      _initialIndex = 1 << 30;
+      _initialAlignment = 1.0;
+      _anchoredAtEnd = true;
+      _anchorCount = -1;
+      return;
+    }
+    final top = _positions.itemPositions.value.fold<ItemPosition?>(null, (a, p) => a == null || p.index < a.index ? p : a);
+    _initialIndex = top?.index ?? _initialIndex;
+    _initialAlignment = top?.itemLeadingEdge ?? _initialAlignment;
+    _anchoredAtEnd = false;
+  }
+
   /// Switches the terminal view to [run]'s tmux window.
   void _openRunWindow(Run run) {
+    if (!_terminal) _keepPlace();
     setState(() {
       _terminal = true;
       _runPane = run;
@@ -525,10 +807,21 @@ class _SessionScreenState extends State<SessionScreen> {
     });
   }
 
+  /// Follows the end again; the next chat build anchors the list there.
   void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-    });
+    _anchoredAtEnd = false;
+    _pinToEnd();
+  }
+
+  /// The Go to bottom button. A jump, not an animation: a long animated
+  /// scroll cross-fades two copies of the list, and the tiles' GlobalKeys
+  /// must never be built twice at once.
+  void _animateToEnd() {
+    setState(() => _stickToBottom = true);
+    if (!_itemScroll.isAttached || _itemCount == 0) return;
+    _animatingToEnd = false;
+    _anchoredAtEnd = false;
+    _pinToEnd();
   }
 
   /// Puts text in the composer (from the agent view) and rebuilds it so the
@@ -611,6 +904,10 @@ class _SessionScreenState extends State<SessionScreen> {
 
   @override
   void dispose() {
+    _recordMark();
+    _markTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _positions.itemPositions.removeListener(_onPositions);
     widget.client.removeListener(_onClient);
     _retry?.cancel();
     _outboxTick?.cancel();
@@ -620,7 +917,6 @@ class _SessionScreenState extends State<SessionScreen> {
     _noticeSub?.cancel();
     widget.client.unsubscribe(_key);
     if (_terminal) widget.client.unsubscribePane(_key);
-    _scroll.dispose();
     super.dispose();
   }
 
@@ -767,7 +1063,7 @@ class _SessionScreenState extends State<SessionScreen> {
         ]),
       ),
       floatingActionButton: !_terminal && !_stickToBottom
-          ? FloatingActionButton.small(onPressed: () => _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut), child: const Icon(Icons.arrow_downward))
+          ? FloatingActionButton.small(onPressed: _animateToEnd, child: const Icon(Icons.arrow_downward))
           : null,
     );
   }
@@ -842,7 +1138,7 @@ class _SessionScreenState extends State<SessionScreen> {
     final s = _session;
     final pending = _pendingBubbles();
     if (_events.isEmpty && pending.isEmpty && (_starting || (s?.pending ?? false))) return _startingBody(s);
-    if (_loading && _events.isEmpty && pending.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (_loading && (_opening || _events.isEmpty) && pending.isEmpty) return const Center(child: CircularProgressIndicator());
     if (_error != null && _events.isEmpty) {
       return Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [Text(_error!), const SizedBox(height: 12), FilledButton(onPressed: _subscribe, child: const Text('Retry'))])));
     }
@@ -850,23 +1146,35 @@ class _SessionScreenState extends State<SessionScreen> {
       return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Nothing in the transcript yet. Send a message to begin, or switch to the terminal view.', textAlign: TextAlign.center)));
     }
     final bangBlocked = _bangBlocked;
-    return ListView.builder(
-      controller: _scroll,
-      padding: const EdgeInsets.only(top: 8, bottom: 12),
-      itemCount: _events.length + pending.length + 2,
+    final count = _events.length + pending.length + 3;
+    _itemCount = count;
+    if (_anchoredAtEnd && _anchorCount < 0) _anchorCount = count;
+    if (_stickToBottom && !_animatingToEnd && !(_anchoredAtEnd && _anchorCount == count)) _pinToEnd();
+    final list = ScrollablePositionedList.builder(
+      key: ValueKey('chat-$_listGen'),
+      itemScrollController: _itemScroll,
+      itemPositionsListener: _positions,
+      initialScrollIndex: _initialIndex.clamp(0, count - 1),
+      initialAlignment: _initialAlignment,
+      itemCount: count,
       itemBuilder: (context, i) {
         if (i == 0) {
-          return _loadingMore ? const Center(child: Padding(padding: EdgeInsets.all(8), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))) : (_hasMore ? TextButton(onPressed: _loadMore, child: const Text('Load earlier')) : const SizedBox(height: 4));
+          return Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: _loadingMore ? const Center(child: Padding(padding: EdgeInsets.all(8), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))) : (_hasMore ? TextButton(onPressed: _loadMore, child: const Text('Load earlier')) : const SizedBox(height: 4)),
+          );
         }
         if (i > _events.length && i <= _events.length + pending.length) return pending[i - _events.length - 1];
-        if (i == _events.length + pending.length + 1) {
+        if (i == count - 1) return const SizedBox.shrink();
+        if (i == count - 2) {
           if (s != null && s.running && s.status == 'busy') {
-            return const Padding(padding: EdgeInsets.fromLTRB(16, 8, 16, 8), child: Row(children: [SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 10), Text('Working…', style: TextStyle(fontSize: 12))]));
+            return const Padding(padding: EdgeInsets.fromLTRB(16, 8, 16, 20), child: Row(children: [SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 10), Text('Working…', style: TextStyle(fontSize: 12))]));
           }
-          return const SizedBox(height: 4);
+          return const SizedBox(height: 16);
         }
         final e = _events[i - 1];
-        return EventTile(
+        final tile = EventTile(
+          key: _tileKeys[e] ??= GlobalKey(),
           event: e,
           result: e.tool != null ? _results[e.tool!.id] : null,
           showThinking: _showThinking,
@@ -876,8 +1184,11 @@ class _SessionScreenState extends State<SessionScreen> {
           client: widget.client,
           sessionKey: _key,
         );
+        if (e.seq != _dividerSeq) return tile;
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [const NewSinceDivider(), tile]);
       },
     );
+    return NotificationListener<Notification>(onNotification: _onScrollNotification, child: list);
   }
 
   /// A fresh session before its transcript exists: where it runs, and that
@@ -1126,6 +1437,27 @@ class _RunSheetState extends State<_RunSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The line above the first message that arrived since the chat was last
+/// read.
+class NewSinceDivider extends StatelessWidget {
+  const NewSinceDivider({super.key});
+  static const caption = 'New since you were here';
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final line = Expanded(child: Divider(height: 1, thickness: 1, color: cs.primary.withValues(alpha: 0.5)));
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+      child: Row(children: [
+        line,
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text(caption, style: TextStyle(fontSize: 11, color: cs.primary))),
+        line,
+      ]),
     );
   }
 }

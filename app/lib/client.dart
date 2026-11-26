@@ -363,6 +363,9 @@ class DaemonClient extends ChangeNotifier {
   /// Sessions this phone has opened or started, so live alerts are raised
   /// for them only. Persisted with the last-seen cache.
   final Set<String> openedSessions = {};
+  /// Where the chat of each session was last read on this phone, by
+  /// session key; oldest first. Persisted beside the drafts.
+  final Map<String, ReadMark> readMarks = {};
   /// Completes once the last-seen cache and the drafts have been read back.
   late final Future<void> restored;
 
@@ -1121,6 +1124,60 @@ class DaemonClient extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ---- read marks (SharedPreferences, debounced) ----
+
+  String get _readsKey => 'reads.${info.id}';
+  Timer? _readsTimer;
+
+  /// Records where [sessionKey]'s chat was read up to. Keeps the 200 most
+  /// recent sessions.
+  void setReadMark(String sessionKey, ReadMark mark) {
+    final old = readMarks[sessionKey];
+    if (old != null && old.sameSpot(mark) && mark.at.difference(old.at) < const Duration(hours: 1)) return;
+    readMarks.remove(sessionKey);
+    readMarks[sessionKey] = mark;
+    while (readMarks.length > 200) {
+      readMarks.remove(readMarks.keys.first);
+    }
+    _saveReadsSoon();
+  }
+
+  void _saveReadsSoon() {
+    if (_closed) return;
+    _readsTimer?.cancel();
+    _readsTimer = Timer(const Duration(milliseconds: 500), _saveReads);
+  }
+
+  Future<void> _saveReads() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (readMarks.isEmpty) {
+        await prefs.remove(_readsKey);
+        return;
+      }
+      await prefs.setString(_readsKey, jsonEncode(readMarks.map((k, v) => MapEntry(k, v.toJson()))));
+    } catch (_) {}
+  }
+
+  /// Reads the marks back, dropping those older than 7 days.
+  Future<void> _restoreReads() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_readsKey);
+      if (raw == null) return;
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      final now = DateTime.now();
+      final marks = <MapEntry<String, ReadMark>>[
+        for (final e in j.entries)
+          if (e.value is Map) MapEntry(e.key, ReadMark.fromJson((e.value as Map).cast<String, dynamic>())),
+      ]..removeWhere((e) => now.difference(e.value.at).inDays > 7);
+      marks.sort((a, b) => a.value.at.compareTo(b.value.at));
+      for (final e in marks.skip(marks.length > 200 ? marks.length - 200 : 0)) {
+        readMarks.putIfAbsent(e.key, () => e.value);
+      }
+    } catch (_) {}
+  }
+
   // ---- last-seen cache (SharedPreferences: titles and paths only) ----
 
   String get _cacheKey => 'sessions.${info.id}';
@@ -1141,6 +1198,7 @@ class DaemonClient extends ChangeNotifier {
 
   Future<void> _restoreCache() async {
     await _restoreDrafts();
+    await _restoreReads();
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_cacheKey);
@@ -1167,6 +1225,7 @@ class DaemonClient extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_cacheKey);
       await prefs.remove(_draftsKey);
+      await prefs.remove(_readsKey);
     } catch (_) {}
   }
 
@@ -1174,6 +1233,7 @@ class DaemonClient extends ChangeNotifier {
     _closed = true;
     _snapTimer?.cancel();
     _draftTimer?.cancel();
+    _readsTimer?.cancel();
     _reconnect?.cancel();
     _ws?.close();
     _eventCtl.close();
@@ -1182,4 +1242,29 @@ class DaemonClient extends ChangeNotifier {
     _replacedCtl.close();
     _noticeCtl.close();
   }
+}
+
+/// Where a session's chat was read up to on this phone: the top visible
+/// event ([seq], and [id], the transcript uuid, which survives a daemon
+/// restart that renumbers seqs), how far its top edge sat from the top of
+/// the view as a fraction of the view's height ([align]), and the newest
+/// event the screen had loaded ([newestSeq]).
+class ReadMark {
+  ReadMark({required this.seq, required this.id, required this.align, required this.newestSeq, DateTime? at}) : at = at ?? DateTime.now();
+  ReadMark.fromJson(Map<String, dynamic> j)
+      : seq = (j['seq'] as num?)?.toInt() ?? 0,
+        id = j['id'] as String? ?? '',
+        align = (j['align'] as num?)?.toDouble() ?? 0,
+        newestSeq = (j['newest_seq'] as num?)?.toInt() ?? 0,
+        at = DateTime.tryParse(j['at'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+
+  final int seq;
+  final String id;
+  final double align;
+  final int newestSeq;
+  final DateTime at;
+
+  bool sameSpot(ReadMark o) => seq == o.seq && id == o.id && (align - o.align).abs() < 0.005 && newestSeq == o.newestSeq;
+
+  Map<String, dynamic> toJson() => {'seq': seq, 'id': id, 'align': align, 'newest_seq': newestSeq, 'at': at.toIso8601String()};
 }
