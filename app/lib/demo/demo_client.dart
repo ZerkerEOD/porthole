@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import '../client.dart';
 import 'fixture.dart' as fx;
@@ -217,6 +218,26 @@ class DemoDaemonClient extends DaemonClient {
         return {'ok': true};
       case 'run.dismiss':
         return {'ok': true};
+      case 'run.log':
+        final r = runs[p['id'] as String? ?? ''];
+        return {
+          'ok': true,
+          'data': {'id': p['id'], 'text': r == null ? '' : fx.runTail(r.command).last, 'truncated': false},
+        };
+      case 'file.get':
+        if (p['path'] != fx.demoShotPath) throw StateError('Not an image under the session folder');
+        final png = fx.demoPng();
+        return {
+          'ok': true,
+          'data': {'media_type': 'image/png', 'data': base64Encode(png), 'bytes': png.length},
+        };
+      case 'file.put':
+        final name = (p['name'] as String? ?? 'image.png').split('/').last;
+        final dir = _json[key]?['cwd'] as String? ?? '/home/dev/src/porthole';
+        return {
+          'ok': true,
+          'data': {'path': '$dir/.porthole/uploads/$name'},
+        };
       case 'session.keys':
         final keys = (p['keys'] as List? ?? const []).cast<String>();
         if (keys.contains('Escape') && _busy(key)) {

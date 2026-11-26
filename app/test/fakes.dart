@@ -2,6 +2,8 @@
 /// question payloads, and an in-process client.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:porthole/client.dart';
@@ -62,6 +64,13 @@ class FakeClient extends DaemonClient {
   String? failPane;
   /// When set, session.subscribe fails with this message.
   String? failSubscribe;
+  /// When set, file.put fails with this message.
+  String? failPut;
+  /// Images served by file.get, by path: (media type, bytes).
+  final Map<String, (String, List<int>)> files = {};
+  /// The saved output run.log returns.
+  String runLogText = 'line 1\nline 2';
+  bool runLogTruncated = false;
 
   void setState(ConnState s) {
     state = s;
@@ -88,6 +97,24 @@ class FakeClient extends DaemonClient {
         return {
           'ok': true,
           'data': {'id': 'run-1'},
+        };
+      case 'run.log':
+        return {
+          'ok': true,
+          'data': {'id': p['id'], 'text': runLogText, 'truncated': runLogTruncated},
+        };
+      case 'file.put':
+        if (failPut != null) throw StateError(failPut!);
+        return {
+          'ok': true,
+          'data': {'path': '/work/.porthole/uploads/${p['name']}'},
+        };
+      case 'file.get':
+        final f = files[p['path']];
+        if (f == null) throw StateError('not an image under the session folder');
+        return {
+          'ok': true,
+          'data': {'media_type': f.$1, 'data': base64Encode(f.$2), 'bytes': f.$2.length},
         };
       case 'question.answer':
         if (refuseQuestion != null) throw StateError(refuseQuestion!);

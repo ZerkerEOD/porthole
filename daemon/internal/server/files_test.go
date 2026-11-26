@@ -169,3 +169,23 @@ func TestGetFileScratchpad(t *testing.T) {
 		t.Fatal("non-claude temp dir served")
 	}
 }
+
+
+func TestGetFileExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cwd := filepath.Join(home, "proj")
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A 1x1 PNG header is enough for the type check; the content is not decoded.
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0}
+	if err := os.WriteFile(filepath.Join(cwd, "shot.png"), png, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := core.Session{Key: "claude:s", ID: "s", Cwd: cwd}
+	d, err := getFile(t.TempDir(), s, "~/proj/shot.png")
+	if err != nil || d.Bytes != len(png) {
+		t.Fatalf("home-relative path: %v %+v", err, d)
+	}
+}

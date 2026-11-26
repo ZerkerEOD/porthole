@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 
+import '../client.dart';
 import '../models.dart';
+import 'images.dart';
 
 /// How a shell block from the chat is run: typed into the session as
 /// `!command`, or in a tmux window of its own next to the session.
@@ -12,10 +14,15 @@ enum RunMode { bang, window }
 
 /// One chat row. Tool uses and their results are paired by the caller.
 class EventTile extends StatelessWidget {
-  const EventTile({super.key, required this.event, this.result, this.showThinking = false, this.onRun, this.canBang = false});
+  const EventTile({super.key, required this.event, this.result, this.showThinking = false, this.onRun, this.canBang = false, this.client, this.sessionKey});
   final Event event;
   final Event? result;
   final bool showThinking;
+
+  /// The session's machine and key, for images the assistant names by
+  /// path; without them such images show as their path.
+  final DaemonClient? client;
+  final String? sessionKey;
 
   /// Runs a shell block from an assistant message; null hides the run
   /// actions (read-only views such as a subagent's transcript).
@@ -36,10 +43,16 @@ class EventTile extends StatelessWidget {
             margin: const EdgeInsets.fromLTRB(48, 6, 12, 6),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(color: cs.primaryContainer, borderRadius: BorderRadius.circular(16)),
-            child: SelectableText(event.text, style: TextStyle(color: cs.onPrimaryContainer)),
+            child: event.images.isEmpty
+                ? SelectableText(event.text, style: TextStyle(color: cs.onPrimaryContainer))
+                : Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+                    EventImages(images: event.images),
+                    if (event.text.trim().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: SelectableText(event.text, style: TextStyle(color: cs.onPrimaryContainer))),
+                  ]),
           ),
         );
       case 'assistant.text':
+        final bare = bareImagePaths(event.text);
         return Padding(
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -48,7 +61,13 @@ class EventTile extends StatelessWidget {
               event.text,
               style: Theme.of(context).textTheme.bodyMedium,
               codeBuilder: (context, name, code, closed) => CodeBlockView(lang: name, code: code, onRun: closed ? onRun : null, canBang: canBang),
+              imageBuilder: (context, url, width, height) => _markdownImage(url),
             ),
+            if (bare.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Wrap(spacing: 6, runSpacing: 6, children: [for (final p in bare) _markdownImage(p)]),
+              ),
             if (event.truncated) _truncNote(context),
           ]),
         );
@@ -85,6 +104,27 @@ class EventTile extends StatelessWidget {
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  /// An image from assistant markdown: a local path is fetched from the
+  /// session's machine, a web address loaded directly, anything else shown
+  /// as text.
+  Widget _markdownImage(String url) {
+    final c = client;
+    final k = sessionKey;
+    if (isImagePath(url) && c != null && k != null) {
+      return ConstrainedBox(constraints: const BoxConstraints(maxHeight: thumbMaxHeight, maxWidth: 280), child: RemoteImage(client: c, sessionKey: k, path: url));
+    }
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: thumbMaxHeight, maxWidth: 280),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.network(url, fit: BoxFit.contain, errorBuilder: (_, _, _) => Text(url, style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
+        ),
+      );
+    }
+    return Text(url, style: const TextStyle(fontFamily: 'monospace', fontSize: 12));
   }
 
   Widget _divider(BuildContext context, String t) => Padding(
@@ -223,7 +263,8 @@ class _ToolCard extends StatelessWidget {
     } catch (_) {
       input = '${use.tool?.input}';
     }
-    return _Collapsible(
+    final images = result?.images ?? const <EventImage>[];
+    final card = _Collapsible(
       icon: _iconFor(name),
       title: sum.isNotEmpty ? '$name  $sum' : name,
       color: err ? cs.error : null,
@@ -242,6 +283,11 @@ class _ToolCard extends StatelessWidget {
         ],
       ]),
     );
+    if (images.isEmpty) return card;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      card,
+      Padding(padding: const EdgeInsets.fromLTRB(12, 0, 12, 4), child: EventImages(images: images)),
+    ]);
   }
 
   static IconData _iconFor(String n) {

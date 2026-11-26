@@ -47,7 +47,7 @@ class _SessionScreenState extends State<SessionScreen> {
   ScreenSnapshot? _screen;
   String? _paneError;
   List<Skill> _skills = const [];
-  StreamSubscription? _evSub, _paneSub, _replacedSub;
+  StreamSubscription? _evSub, _paneSub, _replacedSub, _noticeSub;
   final _scroll = ScrollController();
   bool _stickToBottom = true;
   String _key = '';
@@ -87,6 +87,12 @@ class _SessionScreenState extends State<SessionScreen> {
     });
     _replacedSub = widget.client.replaced.listen((r) {
       if (r.$1 == _key) _switchTo(r.$2);
+    });
+    _noticeSub = widget.client.notices.listen((n) {
+      if (n.$1 != _key || !mounted) return;
+      // The client has already gone back to the session's own pane.
+      if (n.$2 == DaemonClient.runWindowClosedNotice && _runPane != null) setState(() => _runPane = null);
+      _toast(n.$2);
     });
     _scroll.addListener(() {
       final atBottom = _scroll.position.pixels >= _scroll.position.maxScrollExtent - 40;
@@ -294,6 +300,19 @@ class _SessionScreenState extends State<SessionScreen> {
     _subscribePane();
   }
 
+  /// Fetches a finished run's saved output and shows it in a sheet.
+  Future<void> _showRunLog(Run run) async {
+    final ({String text, bool truncated}) log;
+    try {
+      log = await widget.client.runLog(_key, run.id);
+    } catch (e) {
+      _toast('Could not load the output: ${_describe(e)}');
+      return;
+    }
+    if (!mounted) return;
+    await showRunLogSheet(context, run, log.text, truncated: log.truncated);
+  }
+
   /// True when a `!` command can be typed now: the session takes input and
   /// sits at its prompt with nothing open.
   bool get _canBang {
@@ -346,7 +365,7 @@ class _SessionScreenState extends State<SessionScreen> {
   }
 
   String _describe(Object e) => switch (e) {
-        TimeoutException() => 'No reply from ${widget.client.info.displayName} after 5 s',
+        TimeoutException() => 'No reply from ${widget.client.info.displayName} after ${e.duration?.inSeconds ?? 5} s',
         StateError() => e.message,
         _ => '$e',
       };
@@ -361,7 +380,17 @@ class _SessionScreenState extends State<SessionScreen> {
     }
   }
 
-  Future<void> _sendText(String text, {required bool enter}) => _guard(widget.client.sendText(_key, text, enter: enter));
+  /// Sends an attached image to the machine; a refusal carries the
+  /// daemon's message. Large images get a longer wait than keystrokes.
+  Future<String> _upload(PendingImage img) async {
+    try {
+      return await widget.client.putFile(_key, img.name, img.mediaType, img.bytes).timeout(const Duration(seconds: 60));
+    } catch (e) {
+      throw _SendError('Image not sent: ${_describe(e)}');
+    }
+  }
+
+    Future<void> _sendText(String text, {required bool enter}) => _guard(widget.client.sendText(_key, text, enter: enter));
 
   /// Puts text in the composer (from the agent view) and rebuilds it so the
   /// field shows it.
@@ -448,6 +477,7 @@ class _SessionScreenState extends State<SessionScreen> {
     _evSub?.cancel();
     _paneSub?.cancel();
     _replacedSub?.cancel();
+    _noticeSub?.cancel();
     widget.client.unsubscribe(_key);
     if (_terminal) widget.client.unsubscribePane(_key);
     _scroll.dispose();
@@ -565,7 +595,8 @@ class _SessionScreenState extends State<SessionScreen> {
               key: ValueKey('runcard-${r.id}'),
               run: r,
               onStop: () => _runAction(() => client.stopRun(_key, r.id), 'stop the command'),
-              onOpen: controllable ? () => _openRunWindow(r) : null,
+              onOpen: controllable && !r.isDone ? () => _openRunWindow(r) : null,
+              onFullOutput: () => _showRunLog(r),
               onDismiss: () => _runAction(() => client.dismissRun(_key, r.id), 'dismiss the command'),
             ),
           if (_terminal && _runPane != null) _runWindowStrip(_runPane!),
@@ -580,6 +611,7 @@ class _SessionScreenState extends State<SessionScreen> {
               initialText: client.composerDrafts[_key] ?? '',
               onChanged: (t) => client.setComposerDraft(_key, t),
               onSend: (t) => _sendText(t, enter: true),
+              onUpload: _upload,
             ),
           if (_terminal && _runPane == null)
             Composer(
@@ -619,7 +651,7 @@ class _SessionScreenState extends State<SessionScreen> {
           Icon(Icons.open_in_new, size: 16, color: cs.onSurfaceVariant),
           const SizedBox(width: 8),
           Expanded(child: Text('Window: \$ ${r.command.replaceAll('\n', ' ')}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
-          TextButton(onPressed: _closeRunWindow, child: const Text('Session pane')),
+          TextButton(onPressed: _closeRunWindow, child: const Text('Back to session')),
         ]),
       ),
     );
@@ -656,6 +688,8 @@ class _SessionScreenState extends State<SessionScreen> {
           showThinking: _showThinking,
           onRun: (s?.controllable ?? false) ? _runFromChat : null,
           canBang: _canBang,
+          client: widget.client,
+          sessionKey: _key,
         );
       },
     );

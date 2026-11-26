@@ -10,7 +10,52 @@
 /// defaults to demo-box.
 library;
 
+import 'dart:io' show zlib;
+import 'dart:typed_data';
+
 import '../models.dart';
+
+/// The screenshot the build-box CI session shows in its last message.
+const demoShotPath = '/srv/ci/porthole/shot.png';
+
+/// A small PNG built in code (green bars on a dark ground), served for
+/// [demoShotPath].
+Uint8List demoPng({int width = 48, int height = 32}) {
+  final raw = BytesBuilder();
+  for (var y = 0; y < height; y++) {
+    raw.addByte(0); // no filter
+    for (var x = 0; x < width; x++) {
+      final bar = (x ~/ 8).isEven && y > height - 4 - (x * 3 % height);
+      raw.add(bar ? const [0x3C, 0xC8, 0x78] : const [0x1E, 0x22, 0x2A]);
+    }
+  }
+  final out = BytesBuilder()..add(const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+  void chunk(String type, List<int> data) {
+    final body = [...type.codeUnits, ...data];
+    out
+      ..add(_u32(data.length))
+      ..add(body)
+      ..add(_u32(_crc32(body)));
+  }
+
+  chunk('IHDR', [..._u32(width), ..._u32(height), 8, 2, 0, 0, 0]);
+  chunk('IDAT', zlib.encode(raw.toBytes()));
+  chunk('IEND', const []);
+  return out.toBytes();
+}
+
+List<int> _u32(int v) => [(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF];
+
+int _crc32(List<int> bytes) {
+  var c = 0xFFFFFFFF;
+  for (final b in bytes) {
+    c ^= b;
+    for (var k = 0; k < 8; k++) {
+      c = (c & 1) != 0 ? 0xEDB88320 ^ (c >> 1) : c >> 1;
+    }
+  }
+  return c ^ 0xFFFFFFFF;
+}
 
 const demoDaemonId = 'demo';
 const demoBuildBoxId = 'demo-build-box';
@@ -318,7 +363,7 @@ List<Map<String, dynamic>> transcript(String key) {
         _ev(2, 'assistant.thinking', const Duration(minutes: 8, seconds: 50), text: 'The job runs on a self-hosted agent, so a directory under the workspace survives between runs. GOMODCACHE pointed at it plus a restore step keyed on go.sum is enough; no plugin needed.'),
         _ev(3, 'tool.use', const Duration(minutes: 8, seconds: 30), tool: {'id': 'tu_b1', 'name': 'Read', 'input': {'file_path': 'Jenkinsfile'}}),
         _ev(4, 'tool.result', const Duration(minutes: 8, seconds: 28), result: {'tool_use_id': 'tu_b1', 'is_error': false}, text: 'pipeline {\n  agent { label \'linux\' }\n  stages {\n    stage(\'build\') {\n      steps { sh \'cd daemon && go build ./...\' }\n    }\n    // ... 24 more lines'),
-        _ev(5, 'assistant.text', const Duration(seconds: 40), text: 'Adding a GOMODCACHE under the workspace and a restore step keyed on go.sum. Measuring the before and after on the build stage next.'),
+        _ev(5, 'assistant.text', const Duration(seconds: 40), text: 'Adding a GOMODCACHE under the workspace and a restore step keyed on go.sum. Measuring the before and after on the build stage next. The build stage timings so far:\n\n![Screenshot]($demoShotPath)'),
       ];
     case bbCodex1:
       return [

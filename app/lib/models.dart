@@ -2,6 +2,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
@@ -337,7 +338,11 @@ class Event {
         model = j['model'] as String? ?? '',
         level = j['level'] as String? ?? '',
         usage = j['usage'] as Map<String, dynamic>?,
-        meta = j['meta'] as Map<String, dynamic>?;
+        meta = j['meta'] as Map<String, dynamic>?,
+        images = [for (final i in (j['images'] as List? ?? const [])) if (i is Map) EventImage.fromJson(i.cast<String, dynamic>())];
+
+  /// Images carried by a user message or a tool result.
+  final List<EventImage> images;
 
   final int seq;
   final String type, id, messageId, text, status, model, level;
@@ -346,6 +351,47 @@ class Event {
   final ToolUse? tool;
   final String? resultFor;
   final Map<String, dynamic>? usage, meta;
+}
+
+/// An image attached to an event. The daemon leaves [data] out and sets
+/// [omitted] when the image is too large to send; [bytes] is its size.
+class EventImage {
+  EventImage({required this.mediaType, this.data, this.omitted = false, this.bytes = 0});
+  EventImage.fromJson(Map<String, dynamic> j)
+      : mediaType = j['media_type'] as String? ?? '',
+        data = j['data'] as String?,
+        omitted = j['omitted'] as bool? ?? false,
+        bytes = (j['bytes'] as num?)?.toInt() ?? 0;
+  final String mediaType;
+
+  /// Base64 image bytes.
+  final String? data;
+  final bool omitted;
+  final int bytes;
+
+  Uint8List? _decoded;
+  bool _tried = false;
+
+  /// [data] decoded once; null when absent or not valid base64.
+  Uint8List? get bytesDecoded {
+    if (!_tried) {
+      _tried = true;
+      final d = data;
+      if (d != null && d.isNotEmpty) {
+        try {
+          _decoded = base64Decode(d);
+        } catch (_) {}
+      }
+    }
+    return _decoded;
+  }
+}
+
+/// "830 B", "12 KB", "2.3 MB".
+String compactBytes(int n) {
+  if (n >= 1024 * 1024) return '${(n / (1024 * 1024)).toStringAsFixed(1)} MB';
+  if (n >= 1024) return '${(n / 1024).round()} KB';
+  return '$n B';
 }
 
 class ScreenSnapshot {
@@ -508,7 +554,8 @@ class Run {
       fed = j['fed'] as bool? ?? false,
       queued = j['queued'] as bool? ?? false,
       paneId = j['pane_id'] as String? ?? '',
-      device = j['device'] as String? ?? '';
+      device = j['device'] as String? ?? '',
+      recovered = j['recovered'] as bool? ?? false;
 
   final String key, id, command, state, tail, paneId, device;
 
@@ -522,6 +569,10 @@ class Run {
 
   /// The output waits for the session's current turn to end.
   final bool queued;
+
+  /// The daemon restarted while the command ran and recovered the run
+  /// afterwards.
+  final bool recovered;
 
   bool get isDone => state != 'running';
   bool get stopped => state == 'stopped';

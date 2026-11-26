@@ -397,7 +397,7 @@ class _AgentScreenState extends State<AgentScreen> {
               : (_hasMore ? TextButton(onPressed: _loadMore, child: const Text('Load earlier')) : const SizedBox(height: 4));
         }
         final e = _events[i - 1];
-        return EventTile(event: e, result: e.tool != null ? _results[e.tool!.id] : null, showThinking: false);
+        return EventTile(event: e, result: e.tool != null ? _results[e.tool!.id] : null, showThinking: false, client: widget.client, sessionKey: widget.sessionKey);
       },
     );
   }

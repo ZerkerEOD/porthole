@@ -9,7 +9,9 @@
 	<key>FirebaseMessagingAutoInitEnabled</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>
-	<string>Porthole scans the pairing QR code shown by `porthole pair` on your computer.</string>
+	<string>Porthole uses the camera to scan the pairing QR code shown by `porthole pair` on your computer, and to take a photo to attach to a message.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach a photo to a message for the agent on your machine.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Porthole connects to the daemon on your own computer over your VPN or local network.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

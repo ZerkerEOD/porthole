@@ -379,6 +379,14 @@ class DaemonClient extends ChangeNotifier {
   Stream<(String, ScreenSnapshot)> get panes => _paneCtl.stream;
   Stream<(String, String)> get replaced => _replacedCtl.stream;
 
+  /// One-line notices for the screen showing a session: (session key, text).
+  final _noticeCtl = StreamController<(String, String)>.broadcast();
+  Stream<(String, String)> get notices => _noticeCtl.stream;
+
+  /// Shown when a run window the terminal view followed is gone after a
+  /// reconnect.
+  static const runWindowClosedNotice = "The command's window has closed; its output is on the card";
+
   /// Live subscriptions; the daemon drops them when the socket closes, so
   /// they are issued again after every hello.
   final Set<String> _eventKeys = {}, _paneKeys = {};
@@ -751,6 +759,14 @@ class DaemonClient extends ChangeNotifier {
       }());
     }
     for (final key in List.of(_paneKeys)) {
+      // A run window survives a reconnect only while the daemon still lists
+      // that run as running on that pane; after a daemon restart the window
+      // is gone, so the view goes back to the session's own pane.
+      final target = _paneTargets[key];
+      if (target != null && !runs.values.any((r) => r.key == key && r.paneId == target && r.state == 'running')) {
+        _paneTargets.remove(key);
+        if (!_closed) _noticeCtl.add((key, runWindowClosedNotice));
+      }
       unawaited(() async {
         try {
           final target = _paneTargets[key];
@@ -880,6 +896,10 @@ class DaemonClient extends ChangeNotifier {
   /// own pane, so a reconnect subscribes the same one again.
   final Map<String, String> _paneTargets = {};
 
+  /// The run window pane session [key]'s terminal view follows, if any.
+  @visibleForTesting
+  String? paneTarget(String key) => _paneTargets[key];
+
   /// Shows a run's tmux window ([paneId]) in the terminal view of session
   /// [key]: `pane.subscribe` with an extra `pane_id`. Snapshots then arrive
   /// on [panes] under the session key. The one place that knows how a run
@@ -925,6 +945,55 @@ class DaemonClient extends ChangeNotifier {
       if (run.id.isNotEmpty) runs[run.id] = run;
     }
     notifyListeners();
+  }
+
+  /// The full saved output of a finished run (at most 64 KB; [truncated]
+  /// when the daemon cut it).
+  Future<({String text, bool truncated})> runLog(String key, String id) async {
+    final r = await request('run.log', {'key': key, 'id': id});
+    final d = r['data'] as Map? ?? const {};
+    return (text: d['text'] as String? ?? '', truncated: d['truncated'] as bool? ?? false);
+  }
+
+  /// Uploads an image into the session's uploads folder on the machine and
+  /// returns the path the daemon saved it at.
+  Future<String> putFile(String key, String name, String mediaType, Uint8List bytes) async {
+    final r = await request('file.put', {'key': key, 'name': name, 'media_type': mediaType, 'data': base64Encode(bytes)});
+    final path = (r['data'] as Map?)?['path'] as String?;
+    if (path == null || path.isEmpty) throw StateError('The machine did not say where it saved the image');
+    return path;
+  }
+
+  /// Images fetched with [getFile], most recently used last, keyed
+  /// `'<session key>|<path>'`.
+  final Map<String, Future<({Uint8List bytes, String mediaType})>> _images = {};
+  static const _imageCacheSize = 20;
+
+  /// Fetches an image from the session's machine (only images under its
+  /// working directory, uploads folder or scratchpad are served). Repeated
+  /// calls for the same path share one request and its cached result.
+  Future<({Uint8List bytes, String mediaType})> getFile(String key, String path) {
+    final k = '$key|$path';
+    final hit = _images.remove(k);
+    if (hit != null) {
+      _images[k] = hit;
+      return hit;
+    }
+    final f = () async {
+      final r = await request('file.get', {'key': key, 'path': path});
+      final d = r['data'] as Map? ?? const {};
+      return (bytes: base64Decode(d['data'] as String? ?? ''), mediaType: d['media_type'] as String? ?? '');
+    }();
+    _images[k] = f;
+    while (_images.length > _imageCacheSize) {
+      _images.remove(_images.keys.first);
+    }
+    // A failure is not cached, so the image can be tried again later.
+    f.catchError((Object _) {
+      if (identical(_images[k], f)) _images.remove(k);
+      return (bytes: Uint8List(0), mediaType: '');
+    });
+    return f;
   }
 
   Future<void> unsubscribePane(String key) {
@@ -1111,5 +1180,6 @@ class DaemonClient extends ChangeNotifier {
     _agentEventCtl.close();
     _paneCtl.close();
     _replacedCtl.close();
+    _noticeCtl.close();
   }
 }

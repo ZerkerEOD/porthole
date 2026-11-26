@@ -8,11 +8,16 @@ import '../models.dart';
 /// One command running in a tmux window next to the session: its state,
 /// how long it has run, the last lines of output and what happens to them.
 class RunCard extends StatefulWidget {
-  const RunCard({super.key, required this.run, this.onStop, this.onOpen, this.onDismiss});
+  const RunCard({super.key, required this.run, this.onStop, this.onOpen, this.onDismiss, this.onFullOutput});
   final Run run;
   final VoidCallback? onStop;
+
+  /// Shows the run's window; offered only while it runs.
   final VoidCallback? onOpen;
   final VoidCallback? onDismiss;
+
+  /// Shows the saved output of a finished run.
+  final VoidCallback? onFullOutput;
 
   @override
   State<RunCard> createState() => _RunCardState();
@@ -70,7 +75,10 @@ class _RunCardState extends State<RunCard> {
           )
         : Icon(r.failed ? Icons.error : Icons.check_circle, key: const ValueKey('run-state'), size: 16, color: r.failed ? crimsonBright : readyGreen);
     final status = !r.isDone ? 'running' : (r.stopped ? 'stopped' : (r.exit == null ? 'done' : 'exit ${r.exit}'));
-    final footer = r.fed ? 'Output sent to the session' : (r.queued ? 'Output queued for the next turn' : '');
+    final footer = [
+      if (r.fed) 'Output sent to the session' else if (r.queued) 'Output queued for the next turn',
+      if (r.recovered) 'recovered after the daemon restarted',
+    ].join(' · ');
     final lines = r.tailLines;
     return Card(
       key: ValueKey('run-${r.id}'),
@@ -122,7 +130,8 @@ class _RunCardState extends State<RunCard> {
                         ),
                 ),
                 if (!r.isDone && widget.onStop != null) TextButton(onPressed: widget.onStop, child: const Text('Stop')),
-                if (widget.onOpen != null && r.paneId.isNotEmpty) TextButton(onPressed: widget.onOpen, child: const Text('Open window')),
+                if (!r.isDone && widget.onOpen != null && r.paneId.isNotEmpty) TextButton(onPressed: widget.onOpen, child: const Text('Open window')),
+                if (r.isDone && widget.onFullOutput != null) TextButton(onPressed: widget.onFullOutput, child: const Text('Full output')),
                 if (r.isDone && widget.onDismiss != null) TextButton(onPressed: widget.onDismiss, child: const Text('Dismiss')),
               ],
             ),
@@ -132,3 +141,52 @@ class _RunCardState extends State<RunCard> {
     );
   }
 }
+
+/// A bottom sheet with a finished run's saved output in monospace.
+Future<void> showRunLogSheet(BuildContext context, Run run, String text, {bool truncated = false}) => showModalBottomSheet<void>(
+  context: context,
+  showDragHandle: true,
+  isScrollControlled: true,
+  builder: (context) {
+    final cs = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+        child: Column(
+          key: const ValueKey('run-log'),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                '\$ ${run.command.replaceAll('\n', ' ')}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+            if (truncated)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text('Truncated: the output was cut to 64 KB.', style: TextStyle(fontSize: 12, color: attentionAmber)),
+              ),
+            Flexible(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                decoration: BoxDecoration(color: cs.surfaceContainerLowest, borderRadius: BorderRadius.circular(6)),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(10),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SelectableText(text.isEmpty ? '(no output)' : text, style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.3)),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  },
+);

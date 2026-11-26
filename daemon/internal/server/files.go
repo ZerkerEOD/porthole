@@ -257,6 +257,13 @@ var errFileRefused = errors.New("file not available: only png, jpeg, webp or gif
 // getFile reads an image the session may show: one whose real path lies in
 // the session's working directory, its upload directory or its scratchpad.
 func getFile(uploadsRoot string, s core.Session, path string) (FileData, error) {
+	// The CLI and the model write home-relative paths as "~/…"; the app
+	// passes them on unchanged.
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, path[2:])
+		}
+	}
 	if path == "" || !filepath.IsAbs(path) {
 		return FileData{}, errors.New("path must be absolute")
 	}
