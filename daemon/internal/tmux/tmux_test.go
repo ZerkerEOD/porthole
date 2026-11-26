@@ -182,3 +182,60 @@ func TestNewWindowKillWindow(t *testing.T) {
 		t.Fatal("bad pane id accepted")
 	}
 }
+
+// A pane kept after its program exited has pane_dead=1 and an empty
+// pane_pid; it must not be listed, nor a pane whose pid is missing.
+func TestParsePanesSkipsDeadPanes(t *testing.T) {
+	out := "main\t0\t0\t%1\t4242\t/home/u\tclaude\t/dev/pts/1\t200\t50\t0\tmain\n" +
+		"main\t1\t0\t%17\t\t/home/u\tsh\t/dev/pts/2\t200\t50\t1\tph-run-abcd1234\n" +
+		"main\t2\t0\t%18\t0\t/home/u\tsh\t/dev/pts/3\t200\t50\t0\tzero\n" +
+		"main\t3\t0\t%19\t77\t/home/u\tsh\t/dev/pts/4\t80\t24\t0\tname\twith tab\n"
+	got := parsePanes(out)
+	if len(got) != 2 || got[0].PaneID != "%1" || got[0].PID != 4242 || got[0].WindowName != "main" || got[0].Dead {
+		t.Fatalf("panes %+v", got)
+	}
+	if got[1].PaneID != "%19" || got[1].WindowName != "name\twith tab" {
+		t.Fatalf("pane with tab in name %+v", got[1])
+	}
+}
+
+func TestDescendantsOfNoPid(t *testing.T) {
+	procs := map[int]Process{1: {PID: 1, PPID: 0}, 2: {PID: 2, PPID: 1}, 3: {PID: 3, PPID: 2}}
+	if d := Descendants(procs, 0); len(d) != 0 {
+		t.Fatalf("descendants of 0: %+v", d)
+	}
+	if d := Descendants(procs, -1); len(d) != 0 {
+		t.Fatalf("descendants of -1: %+v", d)
+	}
+	if d := Descendants(procs, 1); len(d) != 2 {
+		t.Fatalf("descendants of 1: %+v", d)
+	}
+}
+
+// A window whose program ended is not listed.
+func TestListPanesSkipsDeadWindow(t *testing.T) {
+	c, cleanup := testClient(t)
+	defer cleanup()
+	ctx := context.Background()
+	if _, err := c.NewSession(ctx, "d1", t.TempDir(), []string{"sh", "-c", "sleep 30"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	pane, err := c.NewWindow(ctx, "d1", "ph-run-dead", t.TempDir(), []string{"true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := c.WindowName(ctx, pane); err != nil || n != "ph-run-dead" {
+		t.Fatalf("window name %q %v", n, err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		panes, _ := c.ListPanes(ctx)
+		if len(panes) == 1 && panes[0].PaneID != pane {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dead pane still listed: %+v", panes)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}

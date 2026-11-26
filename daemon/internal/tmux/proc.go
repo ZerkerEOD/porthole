@@ -47,8 +47,13 @@ func Processes(ctx context.Context) (map[int]Process, error) {
 	return procs, nil
 }
 
-// Descendants returns every process below root (breadth-first), excluding root.
+// Descendants returns every process below root (breadth-first), excluding
+// root. A root of zero or less has no descendants: pid 1's parent is 0, so
+// walking from 0 would return the whole process table.
 func Descendants(procs map[int]Process, root int) []Process {
+	if root <= 0 {
+		return nil
+	}
 	children := map[int][]int{}
 	for pid, p := range procs {
 		children[p.PPID] = append(children[p.PPID], pid)

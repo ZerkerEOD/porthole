@@ -60,6 +60,10 @@ type Registry struct {
 	runDir       string
 	runPoll      time.Duration
 	runKillAfter time.Duration
+	runFeedWait  time.Duration
+	// persistMu orders writes of run files so a later snapshot of a run
+	// is never overwritten by an earlier one.
+	persistMu sync.Mutex
 
 	// dirMu guards the reloadable directory lists (workspaces, repos).
 	dirMu      sync.RWMutex
@@ -181,6 +185,7 @@ func (r *Registry) Attention() *AttentionGate { return r.gate }
 // Run scans until ctx is done.
 func (r *Registry) Run(ctx context.Context) {
 	r.scan(ctx)
+	r.LoadRuns(ctx)
 	r.indexHistory()
 	go r.accountsLoop(ctx)
 	scanT := time.NewTicker(3 * time.Second)
@@ -302,6 +307,46 @@ func isCodex(p tmux.Process) bool {
 	return len(f) >= 2 && p.Name == "node" && strings.HasSuffix(f[1], "/codex")
 }
 
+// runWindowPrefix names the windows of commands started from the app.
+const runWindowPrefix = "ph-run-"
+
+// mapCLIProcs maps the pid of every Claude and Codex process to the pane
+// it runs under. Run windows never host a session, so their panes are
+// skipped even while the command runs; a CLI started inside one shows as
+// running outside tmux. Processes in no pane are listed without one.
+func mapCLIProcs(panes []tmux.Pane, procs map[int]tmux.Process, claudeOn, codexOn bool) map[int]liveProc {
+	byPID := map[int]liveProc{}
+	for _, pn := range panes {
+		if pn.Dead || pn.PID <= 0 || strings.HasPrefix(pn.WindowName, runWindowPrefix) {
+			continue
+		}
+		own, ok := procs[pn.PID]
+		cands := tmux.Descendants(procs, pn.PID)
+		if ok {
+			cands = append(cands, own)
+		}
+		for _, d := range cands {
+			switch {
+			case claudeOn && isClaude(d):
+				byPID[d.PID] = liveProc{pane: pn, proc: d, provider: "claude"}
+			case codexOn && isCodex(d):
+				byPID[d.PID] = liveProc{pane: pn, proc: d, provider: "codex"}
+			}
+		}
+	}
+	for pid, p := range procs {
+		if _, ok := byPID[pid]; ok {
+			continue
+		}
+		if claudeOn && isClaude(p) {
+			byPID[pid] = liveProc{proc: p, provider: "claude"}
+		} else if codexOn && isCodex(p) {
+			byPID[pid] = liveProc{proc: p, provider: "codex"}
+		}
+	}
+	return byPID
+}
+
 func (r *Registry) scan(ctx context.Context) {
 	procs, err := tmux.Processes(ctx)
 	if err != nil {
@@ -312,29 +357,7 @@ func (r *Registry) scan(ctx context.Context) {
 	if err != nil && !errors.Is(err, tmux.ErrNoServer) {
 		r.log.Debug("tmux list-panes", "err", err)
 	}
-	// Map CLI pid -> pane.
-	byPID := map[int]liveProc{}
-	for _, pn := range panes {
-		for _, d := range append(tmux.Descendants(procs, pn.PID), procs[pn.PID]) {
-			switch {
-			case r.cfg.Claude.On() && isClaude(d):
-				byPID[d.PID] = liveProc{pane: pn, proc: d, provider: "claude"}
-			case r.cfg.Codex.On() && isCodex(d):
-				byPID[d.PID] = liveProc{pane: pn, proc: d, provider: "codex"}
-			}
-		}
-	}
-	// CLI processes outside tmux are visible but not controllable.
-	for pid, p := range procs {
-		if _, ok := byPID[pid]; ok {
-			continue
-		}
-		if r.cfg.Claude.On() && isClaude(p) {
-			byPID[pid] = liveProc{proc: p, provider: "claude"}
-		} else if r.cfg.Codex.On() && isCodex(p) {
-			byPID[pid] = liveProc{proc: p, provider: "codex"}
-		}
-	}
+	byPID := mapCLIProcs(panes, procs, r.cfg.Claude.On(), r.cfg.Codex.On())
 
 	seen := map[string]bool{}
 	r.mu.Lock()

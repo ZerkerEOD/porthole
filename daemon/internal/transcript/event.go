@@ -63,6 +63,38 @@ type Event struct {
 	Level  string      `json:"level,omitempty"` // for system: info|warn|error
 
 	Meta map[string]any `json:"meta,omitempty"`
+
+	// Images are pictures attached to a user turn or returned by a tool.
+	Images []Image `json:"images,omitempty"`
+}
+
+// Image is one picture carried inline as base64. A picture too large to
+// send has Omitted set and Data empty; Bytes is then its decoded size.
+type Image struct {
+	MediaType string `json:"media_type"`
+	Data      string `json:"data,omitempty"`
+	Omitted   bool   `json:"omitted,omitempty"`
+	Bytes     int    `json:"bytes,omitempty"`
+}
+
+// Limits on images sent inline with an event.
+const (
+	MaxImagesPerEvent = 3
+	MaxImageBytes     = 1536 * 1024
+)
+
+// Base64Size returns the decoded size of standard base64 text without
+// decoding it.
+func Base64Size(s string) int {
+	n := len(s)
+	if n == 0 {
+		return 0
+	}
+	pad := 0
+	for pad < 2 && n-pad > 0 && s[n-1-pad] == '=' {
+		pad++
+	}
+	return n/4*3 + (n%4)*3/4 - pad
 }
 
 // ToolUse is a tool invocation by the assistant.

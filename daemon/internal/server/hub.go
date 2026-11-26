@@ -38,6 +38,8 @@ type hub struct {
 	name  string
 	// lastPush dedupes pushes per device+session+kind.
 	lastPush map[string]time.Time
+	// uploads overrides the file.put directory (tests).
+	uploads string
 }
 
 func newHub(reg *core.Registry, log *slog.Logger) *hub {
@@ -610,6 +612,56 @@ func (c *conn) handle(ctx context.Context, m Message) {
 			return
 		}
 		c.reply(m.ID, true, "", nil)
+	case "run.log":
+		var r RunKeyReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" || r.ID == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		text, truncated, err := reg.RunLog(r.Key, r.ID)
+		if err != nil {
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		c.reply(m.ID, true, "", RunLogMsg{ID: r.ID, Text: text, Truncated: truncated})
+	case "file.put":
+		var r FilePutReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		s, ok := reg.Get(r.Key)
+		if !ok {
+			c.reply(m.ID, false, "unknown session", nil)
+			return
+		}
+		path, n, err := putUpload(c.h.uploadsDir(), s, r, time.Now())
+		if err != nil {
+			c.log.Warn("file put refused", "session", r.Key, "device", c.device.ID, "err", err)
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		c.log.Info("file put", "session", r.Key, "device", c.device.ID, "bytes", n, "media_type", r.MediaType)
+		c.reply(m.ID, true, "", FilePut{Path: path})
+	case "file.get":
+		var r FileGetReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		s, ok := reg.Get(r.Key)
+		if !ok {
+			c.reply(m.ID, false, "unknown session", nil)
+			return
+		}
+		fd, err := getFile(c.h.uploadsDir(), s, r.Path)
+		if err != nil {
+			c.log.Warn("file get refused", "session", r.Key, "device", c.device.ID)
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		c.log.Info("file get", "session", r.Key, "device", c.device.ID, "bytes", fd.Bytes)
+		c.reply(m.ID, true, "", fd)
 	case "run.list":
 		var r KeyReq
 		_ = json.Unmarshal(m.Payload, &r)

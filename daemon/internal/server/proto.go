@@ -100,6 +100,12 @@ type (
 	RunList struct {
 		Runs []core.Run `json:"runs"`
 	}
+	// RunLogMsg is the start of a run's log, up to 64 KB.
+	RunLogMsg struct {
+		ID        string `json:"id"`
+		Text      string `json:"text"`
+		Truncated bool   `json:"truncated"`
+	}
 )
 
 // Server -> client payloads.

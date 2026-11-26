@@ -319,7 +319,12 @@ func printRuns(rs []core.Run, max int) {
 		if r.Exit != nil {
 			exit = strconv.Itoa(*r.Exit)
 		}
-		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", r.ID, r.Key, r.State, exit, r.StartedAt.Local().Format("15:04:05"))
+		state := r.State
+		if r.Recovered {
+			// Read back from disk after a daemon restart.
+			state += " (recovered)"
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", r.ID, r.Key, state, exit, r.StartedAt.Local().Format("15:04:05"))
 	}
 	tw.Flush()
 }

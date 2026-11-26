@@ -55,6 +55,9 @@ that source out for a minute.
 | `run.stop` | `{key, id}` | | sends Ctrl-C to the run window |
 | `run.dismiss` | `{key, id}` | | kills the window and drops the run |
 | `run.list` | `{key?}` | `{runs:[Run]}` |
+| `run.log` | `{key, id}` | `{id, text, truncated}` the run's log, up to 64 KB |
+| `file.put` | `{key, name, media_type, data}` | `{path}` stores a base64 image (png, jpeg, webp, gif; ≤ 10 MB) under the daemon's `uploads/<session id>/` and returns its path, for an "Attached image: <path>" line in the next message |
+| `file.get` | `{key, path}` | `{media_type, data, bytes}` an image file (≤ 10 MB) under the session's cwd, its uploads directory or its scratchpad; anything else is refused |
 | `session.input` | `{key, text, enter}` | | types literal text into the tmux pane (`enter` presses Enter) |
 | `session.keys` | `{key, keys:[...]}` | | named keys: Enter Escape Tab BTab Up Down Left Right Home End PageUp PageDown C-c C-d C-u C-l C-z … or single printable characters |
 | `session.spawn` | `{provider, dir, resume?, prompt?, permission_mode?, model?}` | placeholder `Session` (`pending:true`); the real session replaces it with the same `pane_id` |
@@ -77,7 +80,7 @@ that source out for a minute.
 
 **AgentInfo** `{id, type, description, tool_use_id?, background, finished, running, started_at?, updated_at?, turns, tool_uses, usage:Usage, model?, last_text?}`. **Usage** `{input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens}` (all omitempty).
 
-**Run** `{key, id, command, state: running|done|stopped, exit?, tail, started_at, ended_at?, fed, queued, pane_id, device}`: a command started with `session.run`. `tail` is the last 40 lines (8 KB) of its output; `fed` says the output was typed into the session, `queued` that the session was busy and the CLI holds it for the next turn.
+**Run** `{key, id, command, state: running|done|stopped, exit?, tail, started_at, ended_at?, fed, queued, pane_id, device, recovered?}`: a command started with `session.run`. `tail` is the last 40 lines (8 KB) of its output; `fed` says the output was typed into the session, `queued` that the session was busy and the CLI holds it for the next turn; `recovered` that the daemon reloaded the run from disk after a restart. Runs persist across daemon restarts.
 
 **PermissionRequest** `{id, session_key, tool_name, tool_input?, cwd?, created_at, expires_at?, recovered?, prompt?, description?, detail?, options?:[string]}`. A hook-held request carries `tool_input` and takes `permission.answer {behavior}`. A `recovered` request describes the dialog the CLI drew in the terminal (read off the pane): `tool_name` is the dialog's header ("Bash command", "Create file", "Plan approval"), `detail` the command, file content or the full plan, `options` the choices as numbered on screen; answer it with `permission.answer {option}`.
 
@@ -90,7 +93,9 @@ When the daemon did not see the dialog open (it restarted, or the hook never rea
 
 **Answer** `{index?, indices?:[int], text?, notes?}`: `index` picks one option of a single-select question, `indices` the options of a multi-select one, `text` fills the free-text row (alone for a single select; with or without `indices` for a multi select). Indices are zero-based positions in `options`. `notes` is a note on the chosen option and is only valid with `index` on a single select; this daemon accepts it but does not yet type it into the dialog (it is dropped with a log line).
 
-**Event** `{seq, type, ts, id?, parent_id?, message_id?, turn_id?, sidechain?, agent_id?, text?, truncated?, tool?:{id,name,input}, result?:{tool_use_id,is_error}, status?, usage?, model?, level?, meta?}`
+**Event** `{seq, type, ts, id?, parent_id?, message_id?, turn_id?, sidechain?, agent_id?, text?, truncated?, tool?:{id,name,input}, result?:{tool_use_id,is_error}, status?, usage?, model?, level?, meta?, images?:[{media_type, data?, omitted?, bytes?}]}`
+
+`images` carries image blocks from a user message or a tool result as base64 (`data`), at most three per event; an image over 1.5 MB is listed as `{media_type, omitted:true, bytes}` without data.
 
 Event types include `user`, `assistant.text`, `assistant.thinking`, `tool.use`, `tool.result`, `status`, `compact`, `model_switch`, `usage`, `system` and `command`. A `command` event is a shell command the person ran in the session with the CLI's `!` prefix (`text` is the command, `meta` `{source:"bang", stdout, stderr}`, each capped at 20 KB) or a slash command's output (`text` empty, `meta.source:"slash"`). A `system` event with `meta.kind:"task_notification"` is the CLI's notice that a background subagent or command finished (`agent_id` names the agent; `text` reads like `Agent "…" finished · 64k tokens · 15 tool uses · 1m 32s`).
 

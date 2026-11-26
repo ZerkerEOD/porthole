@@ -58,6 +58,8 @@ type Run struct {
 	Queued bool   `json:"queued"`
 	PaneID string `json:"pane_id"`
 	Device string `json:"device"`
+	// Recovered marks a run the daemon read back from disk after a restart.
+	Recovered bool `json:"recovered,omitempty"`
 }
 
 // runState is the registry's bookkeeping for one run.
@@ -71,6 +73,11 @@ type runState struct {
 	quit     chan struct{}
 	quitOnce sync.Once
 	kill     *time.Timer // closes the window of a finished run
+	// feedSettled is set once feeding the output ended, fed or given up,
+	// so a restart does not try again; feeding guards against two feeds
+	// of one run in this process.
+	feedSettled bool
+	feeding     bool
 }
 
 func (st *runState) close() {
@@ -274,7 +281,7 @@ func (r *Registry) RunCommand(ctx context.Context, key, command string, feed boo
 	if st, err := os.Stat(cwd); cwd == "" || err != nil || !st.IsDir() {
 		cwd = dir
 	}
-	pane, err := r.tm.NewWindow(ctx, s.TmuxSession, "ph-run-"+id, cwd, runArgv(command, logPath))
+	pane, err := r.tm.NewWindow(ctx, s.TmuxSession, runWindowPrefix+id, cwd, runArgv(command, logPath))
 	if err != nil {
 		_ = os.Remove(logPath)
 		return Run{}, err
@@ -292,6 +299,7 @@ func (r *Registry) RunCommand(ctx context.Context, key, command string, feed boo
 	r.runs[key][id] = st
 	run := st.run
 	r.runsMu.Unlock()
+	r.persistRun(key, id)
 	r.log.Info("run started", "session", key, "id", id, "device", device, "bytes", len(command), "command", firstLine(command, 80), "pane", pane)
 	r.each(func(l Listener) { l.RunUpdated(run) })
 	go r.tailRun(key, id, st)
@@ -376,15 +384,17 @@ func (r *Registry) pollRun(key, id string, st *runState) bool {
 	}
 	if ended {
 		st.run.EndedAt = time.Now()
-		after := r.runKillAfter
-		if after <= 0 {
-			after = runKillAfterEnd
-		}
-		st.kill = time.AfterFunc(after, func() { r.closeRunWindow(key, id) })
+		r.scheduleRunKillLocked(key, id, st)
 	}
 	run := st.run
-	feed := ended && exited && st.feed
+	feed := ended && exited && st.feed && !st.feeding && !st.feedSettled
+	if feed {
+		st.feeding = true
+	}
 	r.runsMu.Unlock()
+	// The state is on disk before the status file goes, so a restart in
+	// between still knows how the run ended.
+	r.persistRun(key, id)
 
 	if ended {
 		_ = os.Remove(st.logPath + ".rc")
@@ -395,7 +405,7 @@ func (r *Registry) pollRun(key, id string, st *runState) bool {
 		r.log.Info("run ended", "session", key, "id", id, "state", run.State, "exit", exit)
 	}
 	if feed {
-		r.feedRun(key, id, st, stripExit(string(b)), code)
+		r.feedRun(key, id, st, stripExit(string(b)), code, run.Recovered)
 		return true
 	}
 	r.each(func(l Listener) { l.RunUpdated(run) })
@@ -405,20 +415,27 @@ func (r *Registry) pollRun(key, id string, st *runState) bool {
 // feedRun types the run's output into the session. A session showing a
 // permission prompt or a question is waited on (retrying each second for up
 // to ten minutes) so the text does not land in the dialog; a busy session
-// gets it anyway and the CLI queues it as the next turn.
-func (r *Registry) feedRun(key, id string, st *runState, output string, code int) {
+// gets it anyway and the CLI queues it as the next turn. With waitSession
+// (a run recovered after a restart) a session that is missing or not yet
+// controllable is waited on the same way. The caller sets st.feeding.
+func (r *Registry) feedRun(key, id string, st *runState, output string, code int, waitSession bool) {
 	r.runsMu.Lock()
 	command := st.run.Command
 	r.runsMu.Unlock()
 	text := feedText(command, tailLines(output, runFeedLines, runReadBytes), code)
-	deadline := time.Now().Add(10 * time.Minute)
+	wait := r.runFeedWait
+	if wait <= 0 {
+		wait = 10 * time.Minute
+	}
+	deadline := time.Now().Add(wait)
 	for {
 		s, ok := r.Get(key)
-		if !ok || !s.Controllable {
+		ready := ok && s.Controllable && s.PaneID != ""
+		if !ready && !waitSession {
 			r.log.Warn("run output not fed: session not controllable", "session", key, "id", id)
 			break
 		}
-		if s.Question == nil && s.Status != transcript.StatusWaitingPermission {
+		if ready && s.Question == nil && s.Status != transcript.StatusWaitingPermission {
 			queued := s.Status == transcript.StatusBusy
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			err := r.SendText(ctx, key, text, true)
@@ -434,18 +451,27 @@ func (r *Registry) feedRun(key, id string, st *runState, output string, code int
 			break
 		}
 		if time.Now().After(deadline) {
-			r.log.Warn("run output not fed: a dialog stayed open", "session", key, "id", id)
+			if ready {
+				r.log.Warn("run output not fed: a dialog stayed open", "session", key, "id", id)
+			} else {
+				r.log.Warn("run output not fed: session not controllable", "session", key, "id", id)
+			}
 			break
 		}
 		select {
 		case <-st.quit:
+			r.runsMu.Lock()
+			st.feeding = false
+			r.runsMu.Unlock()
 			return
 		case <-time.After(time.Second):
 		}
 	}
 	r.runsMu.Lock()
+	st.feeding, st.feedSettled = false, true
 	run := st.run
 	r.runsMu.Unlock()
+	r.persistRun(key, id)
 	r.each(func(l Listener) { l.RunUpdated(run) })
 }
 
@@ -462,9 +488,43 @@ func (r *Registry) closeRunWindow(key, id string) {
 	run := st.run
 	r.runsMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_ = r.tm.KillWindow(ctx, pane)
+	r.killRunWindow(ctx, pane, id)
 	cancel()
+	r.persistRun(key, id)
 	r.each(func(l Listener) { l.RunUpdated(run) })
+}
+
+// killRunWindow kills the window holding pane only while that window is
+// still the run's own: pane ids are reused once a tmux server restarts, so
+// a stale id could otherwise close an unrelated window.
+func (r *Registry) killRunWindow(ctx context.Context, pane, id string) {
+	if pane == "" {
+		return
+	}
+	name, err := r.tm.WindowName(ctx, pane)
+	if err != nil || name != runWindowPrefix+id {
+		r.log.Debug("run window not killed: not the run's window", "id", id, "pane", pane)
+		return
+	}
+	_ = r.tm.KillWindow(ctx, pane)
+}
+
+// scheduleRunKillLocked arms the timer that closes a finished run's window
+// runKillAfterEnd after it ended (at once when that time has passed).
+// runsMu must be held.
+func (r *Registry) scheduleRunKillLocked(key, id string, st *runState) {
+	after := r.runKillAfter
+	if after <= 0 {
+		after = runKillAfterEnd
+	}
+	d := time.Until(st.run.EndedAt.Add(after))
+	if d < 0 {
+		d = 0
+	}
+	if st.kill != nil {
+		st.kill.Stop()
+	}
+	st.kill = time.AfterFunc(d, func() { r.closeRunWindow(key, id) })
 }
 
 // StopRun presses Ctrl-C in the run's window. The run is marked stopped
@@ -491,6 +551,8 @@ func (r *Registry) StopRun(ctx context.Context, key, id string) error {
 
 // DismissRun kills the run's window and forgets the run.
 func (r *Registry) DismissRun(ctx context.Context, key, id string) error {
+	r.persistMu.Lock()
+	defer r.persistMu.Unlock()
 	r.runsMu.Lock()
 	st, ok := r.runs[key][id]
 	pane := ""
@@ -506,11 +568,10 @@ func (r *Registry) DismissRun(ctx context.Context, key, id string) error {
 		return errors.New("unknown run")
 	}
 	st.close()
-	if pane != "" {
-		_ = r.tm.KillWindow(ctx, pane)
-	}
+	r.killRunWindow(ctx, pane, id)
 	_ = os.Remove(st.logPath)
 	_ = os.Remove(st.logPath + ".rc")
+	_ = os.Remove(r.runFilePath(id))
 	r.log.Info("run dismissed", "session", key, "id", id)
 	return nil
 }
@@ -582,13 +643,16 @@ func (r *Registry) RunByPane(key, paneID string) (string, bool) {
 func (r *Registry) forgetRuns(key string) {
 	type gone struct {
 		st      *runState
+		id      string
 		running bool
 		pane    string
 	}
+	r.persistMu.Lock()
+	defer r.persistMu.Unlock()
 	r.runsMu.Lock()
 	var gs []gone
-	for _, st := range r.runs[key] {
-		gs = append(gs, gone{st, st.run.State == RunRunning, st.run.PaneID})
+	for id, st := range r.runs[key] {
+		gs = append(gs, gone{st, id, st.run.State == RunRunning, st.run.PaneID})
 	}
 	delete(r.runs, key)
 	r.runsMu.Unlock()
@@ -598,9 +662,10 @@ func (r *Registry) forgetRuns(key string) {
 			continue
 		}
 		_ = os.Remove(g.st.logPath)
+		_ = os.Remove(r.runFilePath(g.id))
 		if g.pane != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			_ = r.tm.KillWindow(ctx, g.pane)
+			r.killRunWindow(ctx, g.pane, g.id)
 			cancel()
 		}
 	}

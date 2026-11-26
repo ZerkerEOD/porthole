@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
@@ -35,6 +36,10 @@ type Pane struct {
 	TTY         string `json:"tty"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
+	// Dead is true when the pane's program exited and tmux kept the pane
+	// (remain-on-exit). Such a pane has no pid.
+	Dead       bool   `json:"dead"`
+	WindowName string `json:"window_name"`
 }
 
 var paneIDRe = regexp.MustCompile(`^%[0-9]{1,8}$`)
@@ -82,9 +87,13 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 // ErrNoServer is returned when tmux has no running server (no sessions).
 var ErrNoServer = errors.New("tmux: no server running")
 
-const paneFormat = "#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}\t#{pane_pid}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_tty}\t#{pane_width}\t#{pane_height}"
+// The window name comes last because it is the only free-form field; a tab
+// inside it stays part of the name.
+const paneFormat = "#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}\t#{pane_pid}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_tty}\t#{pane_width}\t#{pane_height}\t#{pane_dead}\t#{window_name}"
 
-// ListPanes lists every pane on the default server.
+// ListPanes lists every live pane on the server. Dead panes (a finished
+// program kept on screen) and panes without a pid are left out: a pid of
+// zero would make every process on the machine look like the pane's child.
 func (c *Client) ListPanes(ctx context.Context) ([]Pane, error) {
 	out, err := c.run(ctx, "list-panes", "-a", "-F", paneFormat)
 	if err != nil {
@@ -93,12 +102,18 @@ func (c *Client) ListPanes(ctx context.Context) ([]Pane, error) {
 		}
 		return nil, err
 	}
+	return parsePanes(out), nil
+}
+
+// parsePanes parses list-panes output in paneFormat, skipping dead panes
+// and panes whose pid is missing.
+func parsePanes(out string) []Pane {
 	var panes []Pane
 	for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		if l == "" {
 			continue
 		}
-		f := strings.Split(l, "\t")
+		f := strings.SplitN(l, "\t", 12)
 		if len(f) < 10 {
 			continue
 		}
@@ -108,9 +123,31 @@ func (c *Client) ListPanes(ctx context.Context) ([]Pane, error) {
 		p.PID, _ = strconv.Atoi(f[4])
 		p.Width, _ = strconv.Atoi(f[8])
 		p.Height, _ = strconv.Atoi(f[9])
+		if len(f) > 10 {
+			p.Dead = f[10] == "1"
+		}
+		if len(f) > 11 {
+			p.WindowName = f[11]
+		}
+		if p.Dead || p.PID <= 0 {
+			slog.Debug("tmux pane skipped", "pane", p.PaneID, "dead", p.Dead, "pid", f[4])
+			continue
+		}
 		panes = append(panes, p)
 	}
-	return panes, nil
+	return panes
+}
+
+// WindowName returns the name of the window that holds the pane.
+func (c *Client) WindowName(ctx context.Context, paneID string) (string, error) {
+	if !ValidPaneID(paneID) {
+		return "", errors.New("tmux: invalid pane id")
+	}
+	out, err := c.run(ctx, "display-message", "-p", "-t", paneID, "#{window_name}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(out, "\n"), nil
 }
 
 // SendText types text into the pane as literal characters. Multi-line text

@@ -152,6 +152,30 @@ Both actions run with your account on the machine, exactly as typing into
 the terminal would; the daemon logs every run with the device that asked
 and the exit code, and `porthole status` lists the last ten.
 
+Runs are written to disk, so a command that restarts the daemon itself (a
+rebuild followed by `porthole install`) is picked up by the new daemon: it
+finishes the card, sends the output to the session if you asked for it, and
+closes the window after ten minutes. A card marked "recovered" went through
+that. **Full output** on a finished card shows the whole log.
+
+## Images
+
+Images travel both ways between the phone and the machine, and never
+anywhere else.
+
+- The attach button in the message box takes a photo or picks one from the
+  library, uploads it to the daemon, and adds an "Attached image:" line with
+  the file's path to your message. Claude reads the file from there. Uploads
+  live under the daemon's state directory in `uploads/<session id>/` and are
+  removed after seven days.
+- Images in the transcript are shown inline: what you pasted in the terminal
+  and what Claude looked at with its Read tool. Tap one to view it full size.
+  Images over 1.5 MB are listed by size instead of shown.
+- An image Claude writes and refers to by path, or embeds in markdown, is
+  fetched from the machine and shown inline. The daemon serves only image
+  files under the session's directory, its uploads folder, or its scratch
+  space, and only to a paired phone.
+
 ## Subagents
 
 When Claude Code hands work to a subagent (its Agent tool), the CLI writes

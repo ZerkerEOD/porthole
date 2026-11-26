@@ -248,7 +248,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	ws.SetReadLimit(maxMessageBytes)
+	// The read limit admits a file.put; every other message is still held
+	// to maxMessageBytes below.
+	ws.SetReadLimit(maxUploadMessageBytes)
 	c = &conn{h: s.hub, ws: ws, device: d, log: s.log.With("device", d.ID), lim: rate.NewLimiter(60, 120),
 		subs: map[string]bool{}, paneSubs: map[string]bool{}, send: make(chan []byte, sendQueue), pane: map[string]*tmux0{}, paneKick: make(chan struct{}, 1)}
 	if n := s.hub.add(c); n > maxConnsPerDevice {
@@ -275,6 +277,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		var m Message
 		if err := json.Unmarshal(data, &m); err != nil {
 			c.reply("", false, "bad json", nil)
+			continue
+		}
+		if len(data) > maxMessageBytes && m.Type != "file.put" {
+			c.reply(m.ID, false, "message too large", nil)
 			continue
 		}
 		c.handle(ctx, m)

@@ -88,6 +88,48 @@ type block struct {
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
 	IsError   bool            `json:"is_error"`
+	Source    *imageSource    `json:"source"`
+}
+
+// imageSource is the source of an image block.
+type imageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
+// appendImage adds an image block to imgs, up to the per-event limit. An
+// image larger than the inline limit keeps only its type and size.
+func appendImage(imgs []transcript.Image, b block) []transcript.Image {
+	if len(imgs) >= transcript.MaxImagesPerEvent || b.Source == nil || b.Source.Type != "base64" || b.Source.Data == "" {
+		return imgs
+	}
+	size := transcript.Base64Size(b.Source.Data)
+	img := transcript.Image{MediaType: b.Source.MediaType, Bytes: size}
+	if size > transcript.MaxImageBytes {
+		img.Omitted = true
+	} else {
+		img.Data = b.Source.Data
+	}
+	return append(imgs, img)
+}
+
+// contentImages returns the images in a content field that is a block list.
+func contentImages(raw json.RawMessage) []transcript.Image {
+	if len(raw) == 0 || raw[0] != '[' {
+		return nil
+	}
+	var blocks []block
+	if json.Unmarshal(raw, &blocks) != nil {
+		return nil
+	}
+	var imgs []transcript.Image
+	for _, b := range blocks {
+		if b.Type == "image" {
+			imgs = appendImage(imgs, b)
+		}
+	}
+	return imgs
 }
 
 func parseTime(s string) time.Time {
@@ -204,6 +246,7 @@ func (p *Parser) parseUser(e entry, base transcript.Event) ([]transcript.Event, 
 	}
 	agentID := resultAgentID(e.ToolUseResult)
 	var text strings.Builder
+	var imgs []transcript.Image
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
@@ -215,12 +258,15 @@ func (p *Parser) parseUser(e entry, base transcript.Event) ([]transcript.Event, 
 			if text.Len() > 0 {
 				text.WriteString("\n\n")
 			}
+			// The marker stays for apps that do not show images.
 			text.WriteString("_[image attached]_")
+			imgs = appendImage(imgs, b)
 		case "tool_result":
 			ev := base
 			ev.Type = transcript.TypeToolResult
 			ev.Result = &transcript.ToolResult{ToolUseID: b.ToolUseID, IsError: b.IsError}
 			ev.Text, ev.Truncated = transcript.Clip(contentText(b.Content))
+			ev.Images = contentImages(b.Content)
 			if agentID != "" {
 				ev.Meta = map[string]any{"agent_id": agentID}
 			}
@@ -234,6 +280,7 @@ func (p *Parser) parseUser(e entry, base transcript.Event) ([]transcript.Event, 
 		ev := base
 		ev.Type = transcript.TypeUser
 		ev.Text, ev.Truncated = transcript.Clip(t)
+		ev.Images = imgs
 		out = append([]transcript.Event{ev}, out...)
 	}
 	return out, nil
