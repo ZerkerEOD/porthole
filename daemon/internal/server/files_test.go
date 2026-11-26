@@ -170,7 +170,6 @@ func TestGetFileScratchpad(t *testing.T) {
 	}
 }
 
-
 func TestGetFileExpandsHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
