@@ -55,20 +55,17 @@ func (r *Registry) sendBang(ctx context.Context, key, pane, command string) erro
 	if strings.ContainsAny(command, "\n\r") {
 		return errors.New("a ! command is a single line")
 	}
-	scr, err := r.tm.Capture(ctx, pane, 0)
-	if err != nil {
-		return err
-	}
-	if draft := promptLine(scr.Lines); draft != "" {
-		return errors.New("the terminal's input box has unsent text; clear it first")
-	}
+	// Whether the box is empty cannot be told from the screen alone (the
+	// CLI shows dim hints there), so type the "!" and let the screen say
+	// whether shell mode came on. If it did not, the "!" landed as text and
+	// is taken back out.
 	if err := r.tm.SendText(ctx, pane, "!", false); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(bangWait)
 	for {
 		time.Sleep(100 * time.Millisecond)
-		scr, err = r.tm.Capture(ctx, pane, 0)
+		scr, err := r.tm.Capture(ctx, pane, 0)
 		if err != nil {
 			return err
 		}
@@ -76,9 +73,8 @@ func (r *Registry) sendBang(ctx context.Context, key, pane, command string) erro
 			break
 		}
 		if time.Now().After(deadline) {
-			// Take the stray "!" back out rather than leave it in the box.
 			_ = r.tm.SendKeys(ctx, pane, []string{"BSpace"})
-			return errors.New("the session did not switch to shell mode; is it idle?")
+			return errors.New("the session did not switch to shell mode: it is busy, or the input box holds unsent text")
 		}
 	}
 	if err := r.tm.SendText(ctx, pane, command, false); err != nil {
