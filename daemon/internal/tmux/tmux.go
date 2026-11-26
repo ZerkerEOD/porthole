@@ -132,8 +132,24 @@ func (c *Client) SendText(ctx context.Context, paneID, text string, enter bool) 
 			return err
 		}
 	} else if text != "" {
-		if _, err := c.run(ctx, "send-keys", "-t", paneID, "-l", "--", text); err != nil {
-			return err
+		// A leading "!" switches Claude Code into shell mode only when it
+		// arrives as a keystroke of its own; typed in one burst with the
+		// rest it is taken for pasted text. Send it first and let the TUI
+		// react before the command follows.
+		if lead, rest, ok := leadingBang(text); ok {
+			if _, err := c.run(ctx, "send-keys", "-t", paneID, "-l", "--", lead); err != nil {
+				return err
+			}
+			time.Sleep(modeKeyPause)
+			text = rest
+		}
+		if text != "" {
+			if _, err := c.run(ctx, "send-keys", "-t", paneID, "-l", "--", text); err != nil {
+				return err
+			}
+		}
+		if enter {
+			time.Sleep(enterPause)
 		}
 	}
 	if enter {
@@ -145,6 +161,19 @@ func (c *Client) SendText(ctx context.Context, paneID, text string, enter bool) 
 		return err
 	}
 	return nil
+}
+
+// modeKeyPause is how long the TUI needs to enter shell mode after "!", and
+// enterPause how long typed text needs to settle before Enter.
+var modeKeyPause, enterPause = 200 * time.Millisecond, 60 * time.Millisecond
+
+// leadingBang splits a "!command" into the "!" and the command, trimming the
+// space the CLI shows after the prefix. ok is false for other text.
+func leadingBang(text string) (lead, rest string, ok bool) {
+	if !strings.HasPrefix(text, "!") || text == "!" {
+		return "", text, false
+	}
+	return "!", strings.TrimLeft(text[1:], " "), true
 }
 
 // allowedKeys are the only key names a client may send by name.
