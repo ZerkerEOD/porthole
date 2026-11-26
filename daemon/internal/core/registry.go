@@ -51,6 +51,16 @@ type Registry struct {
 	codexProfiles  []codex.Profile
 	summaries      map[string]summaryEntry
 
+	// runsMu guards runs: commands started in their own window, by session
+	// key and run id. runDir, runPoll and runKillAfter override the log
+	// directory and timings (tests).
+	runsMu       sync.Mutex
+	runStartMu   sync.Mutex // serialises RunCommand up to the point the run is recorded
+	runs         map[string]map[string]*runState
+	runDir       string
+	runPoll      time.Duration
+	runKillAfter time.Duration
+
 	// dirMu guards the reloadable directory lists (workspaces, repos).
 	dirMu      sync.RWMutex
 	workspaces []string
@@ -84,6 +94,7 @@ func New(cfg *config.Config, log *slog.Logger) *Registry {
 		spawned:    map[string]spawnInfo{},
 		answering:  map[string]bool{},
 		summaries:  map[string]summaryEntry{},
+		runs:       map[string]map[string]*runState{},
 		cs:         &cswap.Client{Binary: cfg.Cswap.Binary},
 		workspaces: append([]string(nil), cfg.Workspaces...),
 		repos:      append([]string(nil), cfg.Repos...),
@@ -92,6 +103,9 @@ func New(cfg *config.Config, log *slog.Logger) *Registry {
 	r.gate = newAttentionGate(r.attend, func(key string) bool {
 		s, ok := r.Get(key)
 		return ok && waiting(s.Status)
+	}, func(key string) bool {
+		s, ok := r.Get(key)
+		return ok && s.Running && backgroundWork(s)
 	})
 	return r
 }
@@ -183,6 +197,7 @@ func (r *Registry) Run(ctx context.Context) {
 			return
 		case <-scanT.C:
 			r.scan(ctx)
+			r.gate.Tick()
 		case <-tailT.C:
 			r.pumpAll()
 		case <-paneT.C:
@@ -230,8 +245,11 @@ func (r *Registry) upsert(s Session) {
 	cp := s
 	r.sessions[s.Key] = &cp
 	r.mu.Unlock()
-	if had && old.Status != s.Status && s.Status == transcript.StatusBusy {
-		// Back to work: the next idle, question or permission is news again.
+	if had && s.Provider == "codex" && old.Status != s.Status && s.Status == transcript.StatusBusy {
+		// Codex has no prompt hook: its transcript turning busy is the only
+		// sign of a new prompt. Claude sessions reset on UserPromptSubmit
+		// and on answers, since a Claude session in auto mode resumes on
+		// its own and each resume must not make the next turn end news.
 		r.gate.Reset(s.Key)
 	}
 	if changed {
@@ -253,6 +271,7 @@ func (r *Registry) remove(key string) {
 	}
 	r.mu.Unlock()
 	r.gate.Forget(key)
+	r.forgetRuns(key)
 	if had {
 		r.each(func(l Listener) { l.SessionRemoved(key) })
 	}
@@ -518,6 +537,7 @@ func (r *Registry) finishLive(s *Session, path string) {
 			s.Model = fl.model
 		}
 	}
+	holdBusy(s)
 	if s.UpdatedAt.IsZero() {
 		if prev != nil && !prev.UpdatedAt.IsZero() {
 			s.UpdatedAt = prev.UpdatedAt
@@ -768,8 +788,9 @@ func (r *Registry) pumpAll() {
 					s.Model, changed = ev.Model, true
 				}
 			}
+			closed := false
 			if q := s.Question; q != nil && questionClosedBy(fresh, q.SetAt) {
-				s.Question, changed = nil, true
+				s.Question, changed, closed = nil, true, true
 				if s.Status == transcript.StatusWaitingInput {
 					s.Status = transcript.StatusBusy
 				}
@@ -777,6 +798,10 @@ func (r *Registry) pumpAll() {
 			if changed {
 				s.UpdatedAt = time.Now()
 				r.upsert(s)
+			}
+			if closed {
+				// Answered in the terminal: the next notice starts a new wait.
+				r.gate.Reset(s.Key)
 			}
 		}
 	}
@@ -893,6 +918,21 @@ func (r *Registry) SubscribePane(ctx context.Context, key string) (*tmux.Screen,
 	return r.tm.Capture(ctx, s.PaneID, 200)
 }
 
+// SubscribeRunPane starts screen polling for the window of one of the
+// session's runs. Snapshots reach listeners through Pane with the key
+// RunPaneKey(key, id); UnsubscribePane takes the same key.
+func (r *Registry) SubscribeRunPane(ctx context.Context, key, id string) (*tmux.Screen, error) {
+	pane, ok := r.runPane(key, id)
+	if !ok {
+		return nil, errors.New("run has no open window")
+	}
+	k := RunPaneKey(key, id)
+	r.mu.Lock()
+	r.paneSubs[k]++
+	r.mu.Unlock()
+	return r.tm.Capture(ctx, pane, 200)
+}
+
 // UnsubscribePane stops polling when the last subscriber leaves.
 func (r *Registry) UnsubscribePane(key string) {
 	r.mu.Lock()
@@ -907,14 +947,29 @@ func (r *Registry) UnsubscribePane(key string) {
 
 func (r *Registry) pollPanes(ctx context.Context) {
 	r.mu.RLock()
-	type target struct{ key, pane string }
+	type target struct {
+		key, pane string
+		run       bool
+	}
 	var ts []target
+	var runKeys []string
 	for k, n := range r.paneSubs {
-		if n > 0 && r.sessions[k] != nil && r.sessions[k].PaneID != "" {
-			ts = append(ts, target{k, r.sessions[k].PaneID})
+		if n <= 0 {
+			continue
+		}
+		if _, _, ok := SplitRunPaneKey(k); ok {
+			runKeys = append(runKeys, k)
+		} else if r.sessions[k] != nil && r.sessions[k].PaneID != "" {
+			ts = append(ts, target{key: k, pane: r.sessions[k].PaneID})
 		}
 	}
 	r.mu.RUnlock()
+	for _, k := range runKeys {
+		key, id, _ := SplitRunPaneKey(k)
+		if pane, ok := r.runPane(key, id); ok {
+			ts = append(ts, target{key: k, pane: pane, run: true})
+		}
+	}
 	for _, t := range ts {
 		scr, err := r.tm.Capture(ctx, t.pane, 200)
 		if err != nil {
@@ -933,6 +988,9 @@ func (r *Registry) pollPanes(ctx context.Context) {
 		r.mu.Unlock()
 		if changed {
 			r.each(func(l Listener) { l.Pane(t.key, scr) })
+			if t.run {
+				continue
+			}
 			if m, ok := parseModeLine(scr.Lines); ok {
 				r.SetPermissionMode(t.key, m)
 			}
@@ -1336,6 +1394,7 @@ func (r *Registry) SetStatus(key, status string) {
 	if status != transcript.StatusWaitingInput {
 		s.Question = nil
 	}
+	holdBusy(&s)
 	s.UpdatedAt = time.Now()
 	r.upsert(s)
 }

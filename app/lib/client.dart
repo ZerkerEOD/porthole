@@ -346,6 +346,10 @@ class DaemonClient extends ChangeNotifier {
   Map<String, bool> features = {};
   final Map<String, Session> sessions = {};
   final Map<String, PermissionRequest> permissions = {};
+
+  /// Commands running (or recently finished) in their own tmux windows,
+  /// by run id; see [Run].
+  final Map<String, Run> runs = {};
   Map<String, dynamic>? accounts;
   /// Latest result per address, from connects and probes.
   final Map<String, HostStatus> hostStatus = {};
@@ -642,6 +646,11 @@ class DaemonClient extends ChangeNotifier {
           _markPlan(r);
           permissions[r.id] = r;
         }
+        runs.clear();
+        for (final r in (p['runs'] as List? ?? [])) {
+          final run = Run.fromJson((r as Map).cast<String, dynamic>());
+          if (run.id.isNotEmpty) runs[run.id] = run;
+        }
         accounts = p['accounts'] as Map<String, dynamic>?;
         // The daemon's advertised addresses replace the stored list, so an
         // address it stopped binding disappears instead of being probed
@@ -678,6 +687,7 @@ class DaemonClient extends ChangeNotifier {
         sessions.remove(key);
         _eventKeys.remove(key);
         _paneKeys.remove(key);
+        _paneTargets.remove(key);
         notifyListeners();
       case 'session.replaced':
         final p = payload as Map<String, dynamic>;
@@ -705,6 +715,10 @@ class DaemonClient extends ChangeNotifier {
         notifyListeners();
       case 'permission.resolved':
         permissions.remove((payload as Map<String, dynamic>)['id']);
+        notifyListeners();
+      case 'run.update':
+        final run = Run.fromJson((payload as Map).cast<String, dynamic>());
+        if (run.id.isNotEmpty) runs[run.id] = run;
         notifyListeners();
       case 'accounts.update':
         accounts = payload as Map<String, dynamic>?;
@@ -739,7 +753,8 @@ class DaemonClient extends ChangeNotifier {
     for (final key in List.of(_paneKeys)) {
       unawaited(() async {
         try {
-          final scr = await subscribePane(key);
+          final target = _paneTargets[key];
+          final scr = target != null ? await subscribeRunPane(key, target) : await subscribePane(key);
           if (scr != null && !_closed) _paneCtl.add((key, scr));
         } catch (_) {}
       }());
@@ -848,6 +863,7 @@ class DaemonClient extends ChangeNotifier {
   }
 
   Future<ScreenSnapshot?> subscribePane(String key) async {
+    _paneTargets.remove(key);
     _paneKeys.add(key);
     _markOpened(key);
     try {
@@ -860,9 +876,63 @@ class DaemonClient extends ChangeNotifier {
     }
   }
 
+  /// Session key -> the run window's pane shown in place of the session's
+  /// own pane, so a reconnect subscribes the same one again.
+  final Map<String, String> _paneTargets = {};
+
+  /// Shows a run's tmux window ([paneId]) in the terminal view of session
+  /// [key]: `pane.subscribe` with an extra `pane_id`. Snapshots then arrive
+  /// on [panes] under the session key. The one place that knows how a run
+  /// window is opened.
+  Future<ScreenSnapshot?> subscribeRunPane(String key, String paneId) async {
+    _paneKeys.add(key);
+    _paneTargets[key] = paneId;
+    try {
+      final r = await request('pane.subscribe', {'key': key, 'pane_id': paneId});
+      final d = r['data'] as Map<String, dynamic>?;
+      return d?['screen'] != null ? ScreenSnapshot.fromJson(d!['screen'] as Map<String, dynamic>) : null;
+    } catch (_) {
+      _paneKeys.remove(key);
+      _paneTargets.remove(key);
+      rethrow;
+    }
+  }
+
+  /// Runs [command] in a tmux window next to session [key]. With [feed] the
+  /// daemon sends the output to the session when it finishes. Returns the
+  /// run id; progress arrives as `run.update` in [runs].
+  Future<String> runCommand(String key, String command, {bool feed = true}) async {
+    final r = await request('session.run', {'key': key, 'command': command, 'feed': feed});
+    return (r['data'] as Map?)?['id'] as String? ?? '';
+  }
+
+  Future<void> stopRun(String key, String id) => request('run.stop', {'key': key, 'id': id});
+
+  /// Forgets a finished run here and on the daemon.
+  Future<void> dismissRun(String key, String id) async {
+    await request('run.dismiss', {'key': key, 'id': id});
+    if (runs.remove(id) != null) notifyListeners();
+  }
+
+  /// Replaces the runs of session [key] with the daemon's list.
+  Future<void> listRuns(String key) async {
+    final r = await request('run.list', {'key': key});
+    final list = (r['data'] as Map?)?['runs'];
+    if (list is! List) return;
+    runs.removeWhere((_, run) => run.key == key);
+    for (final j in list) {
+      final run = Run.fromJson((j as Map).cast<String, dynamic>());
+      if (run.id.isNotEmpty) runs[run.id] = run;
+    }
+    notifyListeners();
+  }
+
   Future<void> unsubscribePane(String key) {
+    // A run window's subscription is keyed by its pane on the daemon, so the
+    // pane id has to go with the request or the subscription outlives the view.
+    final target = _paneTargets.remove(key);
     _paneKeys.remove(key);
-    return request('pane.unsubscribe', {'key': key}).catchError((_) => <String, dynamic>{});
+    return request('pane.unsubscribe', {'key': key, 'pane_id': ?target}).catchError((_) => <String, dynamic>{});
   }
   Future<void> resizePane(String key, int cols, int rows) => request('pane.resize', {'key': key, 'cols': cols, 'rows': rows}).catchError((_) => <String, dynamic>{});
 

@@ -84,6 +84,11 @@ class FakeClient extends DaemonClient {
         return {'ok': true, 'data': {'key': p['key'], 'agent_id': p['agent_id'], 'events': const [], 'has_more': false}};
       case 'skills.list':
         return {'ok': true, 'data': const []};
+      case 'session.run':
+        return {
+          'ok': true,
+          'data': {'id': 'run-1'},
+        };
       case 'question.answer':
         if (refuseQuestion != null) throw StateError(refuseQuestion!);
         return {'ok': true};

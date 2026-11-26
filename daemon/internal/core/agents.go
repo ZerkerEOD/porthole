@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"time"
 
 	"github.com/ZerkerEOD/porthole/daemon/internal/provider/claude"
 	"github.com/ZerkerEOD/porthole/daemon/internal/transcript"
@@ -35,6 +36,19 @@ func (r *Registry) claudeExtras(s *Session, prev *Session) {
 	} else if prev != nil {
 		s.Agents, s.AgentsTotal = prev.Agents, prev.AgentsTotal
 	}
+	s.PendingTasks = 0
+	if s.Running {
+		if tasks, err := claude.PendingTasks(s.TranscriptPath); err == nil {
+			cutoff := time.Now().Add(-pendingTaskMaxAge)
+			for _, t := range tasks {
+				if t.LaunchedAt.IsZero() || t.LaunchedAt.After(cutoff) {
+					s.PendingTasks++
+				}
+			}
+		} else if prev != nil {
+			s.PendingTasks = prev.PendingTasks
+		}
+	}
 	if u, err := claude.TranscriptUsage(s.TranscriptPath); err == nil {
 		if u != (transcript.Usage{}) {
 			s.Usage = &u
@@ -43,6 +57,37 @@ func (r *Registry) claudeExtras(s *Session, prev *Session) {
 		}
 	} else if prev != nil {
 		s.Usage = prev.Usage
+	}
+}
+
+// pendingTaskMaxAge bounds how long a background task without a completion
+// notice keeps its session busy. A background Bash call can be a server that
+// never ends; past this age it no longer holds status or notices back.
+const pendingTaskMaxAge = 30 * time.Minute
+
+// backgroundWork reports whether a session has a running subagent or a
+// pending background task.
+func backgroundWork(s Session) bool {
+	if s.PendingTasks > 0 {
+		return true
+	}
+	for _, a := range s.Agents {
+		if a.Running {
+			return true
+		}
+	}
+	return false
+}
+
+// holdBusy reports a running session that looks idle or waiting for input
+// as busy while it has background work: the model resumes when that work
+// reports back. A permission prompt or an open question still wins.
+func holdBusy(s *Session) {
+	if !s.Running || s.Question != nil {
+		return
+	}
+	if (s.Status == transcript.StatusIdle || s.Status == transcript.StatusWaitingInput) && backgroundWork(*s) {
+		s.Status = transcript.StatusBusy
 	}
 }
 

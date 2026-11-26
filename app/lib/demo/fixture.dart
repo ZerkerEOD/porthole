@@ -281,7 +281,7 @@ List<Map<String, dynamic>> transcript(String key) {
           },
         }),
         _ev(7, 'tool.result', const Duration(minutes: 2, seconds: 58), result: {'tool_use_id': 'tu_2', 'is_error': false}, text: 'The file internal/pair/handler.go has been updated.'),
-        _ev(8, 'assistant.text', const Duration(minutes: 1), text: 'Limiter added with a one-minute sweep. Next I want to run the package tests to confirm the lockout behaves.'),
+        _ev(8, 'assistant.text', const Duration(minutes: 1), text: 'Limiter added with a one-minute sweep. Next I want to run the package tests to confirm the lockout behaves:\n\n```sh\ngo test ./internal/pair/...\n```'),
       ];
     case claude2:
       return [
@@ -528,6 +528,24 @@ final _replies = [
   'Understood: "{q}". Checking the relevant files before changing anything.',
   'Good call. "{q}" touches two packages; I\'ll do the smaller one first and run its tests.',
 ];
+
+/// Output for a command run in a demo window, in three stages (the last
+/// one is the finished tail).
+List<String> runTail(String command) {
+  final c = command.trim();
+  if (c.startsWith('go test')) {
+    return [
+      '=== RUN   TestPairLimiter',
+      '=== RUN   TestPairLimiter\n--- PASS: TestPairLimiter (0.01s)\n=== RUN   TestPairLockout',
+      '=== RUN   TestPairLimiter\n--- PASS: TestPairLimiter (0.01s)\n=== RUN   TestPairLockout\n--- PASS: TestPairLockout (0.20s)\nPASS\nok  \tporthole/daemon/internal/pair\t0.412s',
+    ];
+  }
+  if (c.startsWith('flutter test')) {
+    return ['00:02 +0: loading', '00:05 +12: All tests passed so far', '00:07 +24: All tests passed!'];
+  }
+  return ['Running $c', 'Running $c\n…', 'Running $c\n…\ndone'];
+}
+
 int _replyIx = 0;
 
 String cannedReply(String input) {

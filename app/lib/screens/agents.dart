@@ -376,10 +376,11 @@ class _AgentScreenState extends State<AgentScreen> {
         ),
       );
     }
-    if (_events.isEmpty)
+    if (_events.isEmpty) {
       return const Center(
         child: Padding(padding: EdgeInsets.all(24), child: Text('Nothing written yet.')),
       );
+    }
     return ListView.builder(
       controller: _scroll,
       padding: const EdgeInsets.only(top: 8, bottom: 12),

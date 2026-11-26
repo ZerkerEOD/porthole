@@ -77,6 +77,29 @@ type (
 		Key     string `json:"key"`
 		AgentID string `json:"agent_id"`
 	}
+	// PaneReq subscribes to (or leaves) a session's pane or, with RunID or
+	// PaneID, the window of one of the session's runs.
+	PaneReq struct {
+		Key    string `json:"key"`
+		RunID  string `json:"run_id,omitempty"`
+		PaneID string `json:"pane_id,omitempty"`
+	}
+	// RunReq starts command in a new window of the session's tmux session.
+	RunReq struct {
+		Key     string `json:"key"`
+		Command string `json:"command"`
+		Feed    bool   `json:"feed"`
+	}
+	RunKeyReq struct {
+		Key string `json:"key"`
+		ID  string `json:"id"`
+	}
+	RunStarted struct {
+		ID string `json:"id"`
+	}
+	RunList struct {
+		Runs []core.Run `json:"runs"`
+	}
 )
 
 // Server -> client payloads.
@@ -90,6 +113,7 @@ type (
 		Sessions    []core.Session           `json:"sessions"`
 		Accounts    core.AccountsSnapshot    `json:"accounts"`
 		Permissions []core.PermissionRequest `json:"permissions"`
+		Runs        []core.Run               `json:"runs"`
 		Features    map[string]bool          `json:"features"`
 	}
 	EventsMsg struct {
@@ -107,8 +131,12 @@ type (
 		AgentID string             `json:"agent_id"`
 		Events  []transcript.Event `json:"events"`
 	}
+	// PaneMsg is a screen snapshot. RunID and PaneID are set for the
+	// window of a run.
 	PaneMsg struct {
 		Key    string       `json:"key"`
+		RunID  string       `json:"run_id,omitempty"`
+		PaneID string       `json:"pane_id,omitempty"`
 		Screen *tmux.Screen `json:"screen"`
 	}
 	ResultMsg struct {

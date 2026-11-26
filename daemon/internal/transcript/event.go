@@ -20,6 +20,10 @@ const (
 	TypeModelSwitch = "model_switch"
 	TypeCompact     = "compact"
 	TypeSystem      = "system" // errors, notices
+	// TypeCommand is a shell command the user ran with "!" (meta.source
+	// "bang", with stdout and stderr) or the output of a slash command
+	// (meta.source "slash").
+	TypeCommand = "command"
 )
 
 // Session statuses.

@@ -5,6 +5,7 @@ package claude
 
 import (
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,10 @@ import (
 // stateful only to dedupe per-message usage; create one per file.
 type Parser struct {
 	seenUsage map[string]bool
+	// bang holds a "!" command whose output record has not been read yet.
+	// Claude Code writes the command and its output as two consecutive
+	// user records; they become one command event.
+	bang *transcript.Event
 }
 
 // NewParser returns a fresh parser.
@@ -98,6 +103,19 @@ func parseTime(s string) time.Time {
 
 // ParseLine implements transcript.Parser.
 func (p *Parser) ParseLine(line []byte) ([]transcript.Event, error) {
+	held := p.bang
+	evs, err := p.parseLine(line)
+	if held != nil && p.bang == held {
+		// The record after a "!" command was not its output (the command
+		// was interrupted, or the CLI wrote something in between): show the
+		// command without output rather than hold it back.
+		p.bang = nil
+		evs = append([]transcript.Event{*held}, evs...)
+	}
+	return evs, err
+}
+
+func (p *Parser) parseLine(line []byte) ([]transcript.Event, error) {
 	var e entry
 	if err := json.Unmarshal(line, &e); err != nil {
 		return nil, err
@@ -169,6 +187,9 @@ func (p *Parser) parseUser(e entry, base transcript.Event) ([]transcript.Event, 
 	// Content is either a plain string (typed prompt) or a block list.
 	var s string
 	if err := json.Unmarshal(m.Content, &s); err == nil {
+		if evs, ok := p.commandRecord(e, base, s); ok {
+			return evs, nil
+		}
 		ev := base
 		ev.Type = transcript.TypeUser
 		ev.Text, ev.Truncated = transcript.Clip(s)
@@ -206,7 +227,10 @@ func (p *Parser) parseUser(e entry, base transcript.Event) ([]transcript.Event, 
 			out = append(out, ev)
 		}
 	}
-	if t := text.String(); strings.TrimSpace(t) != "" && !isSystemInjected(t) {
+	if evs, ok := p.commandRecord(e, base, text.String()); ok {
+		return append(evs, out...), nil
+	}
+	if t := unwrapPasted(text.String()); strings.TrimSpace(t) != "" && !isSystemInjected(t) {
 		ev := base
 		ev.Type = transcript.TypeUser
 		ev.Text, ev.Truncated = transcript.Clip(t)
@@ -231,10 +255,27 @@ func resultAgentID(raw json.RawMessage) string {
 
 // isSystemInjected recognizes harness-generated "user" lines that are not the
 // human's words (reminders, interruption notices, command echoes).
+// pastedRe matches the envelope the CLI wraps around text that arrived as a
+// terminal paste (bracketed paste), including the message the daemon types
+// back after a run. The model sees the envelope; the person need not.
+var pastedRe = regexp.MustCompile(`(?s)<pasted_content id="[^"]*">\n?(.*?)\n?</pasted_content[^>]*>`)
+
+// unwrapPasted removes pasted_content envelopes, keeping their text.
+func unwrapPasted(s string) string {
+	if !strings.Contains(s, "<pasted_content") {
+		return s
+	}
+	return strings.TrimSpace(pastedRe.ReplaceAllString(s, "$1"))
+}
+
 func isSystemInjected(s string) bool {
 	t := strings.TrimSpace(s)
 	return strings.HasPrefix(t, "<system-reminder>") ||
 		strings.HasPrefix(t, "<local-command-stdout>") ||
+		strings.HasPrefix(t, "<local-command-stderr>") ||
+		strings.HasPrefix(t, "<bash-input>") ||
+		strings.HasPrefix(t, "<bash-stdout>") ||
+		strings.HasPrefix(t, "<bash-stderr>") ||
 		strings.HasPrefix(t, "<command-name>") ||
 		strings.HasPrefix(t, "<task-notification>") ||
 		strings.HasPrefix(t, "[Request interrupted by user")

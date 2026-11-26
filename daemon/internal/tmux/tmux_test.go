@@ -137,3 +137,48 @@ func TestSpawnWrapper(t *testing.T) {
 		t.Fatalf("wrapper = %v", w)
 	}
 }
+
+func TestNewWindowKillWindow(t *testing.T) {
+	c, cleanup := testClient(t)
+	defer cleanup()
+	ctx := context.Background()
+	if _, err := c.NewSession(ctx, "w1", t.TempDir(), []string{"sh", "-c", "sleep 30"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pane, err := c.NewWindow(ctx, "w1", "ph-run-abc", dir, []string{"sh", "-c", "echo \"$1\"; sleep 30", "x", "arg with $(id) ; spaces"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ValidPaneID(pane) {
+		t.Fatalf("pane %q", pane)
+	}
+	panes, err := c.ListPanes(ctx)
+	if err != nil || len(panes) != 2 {
+		t.Fatalf("panes %+v %v", panes, err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		scr, err := c.Capture(ctx, pane, 10)
+		if err == nil && strings.Contains(strings.Join(scr.Lines, "\n"), "arg with $(id) ; spaces") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("argument not echoed literally: %v %v", scr, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err := c.KillWindow(ctx, pane); err != nil {
+		t.Fatal(err)
+	}
+	panes, _ = c.ListPanes(ctx)
+	if len(panes) != 1 || panes[0].PaneID == pane {
+		t.Fatalf("window not killed: %+v", panes)
+	}
+	if _, err := c.NewWindow(ctx, "w1;x", "n", dir, []string{"true"}); err == nil {
+		t.Fatal("bad session name accepted")
+	}
+	if err := c.KillWindow(ctx, "w1"); err == nil {
+		t.Fatal("bad pane id accepted")
+	}
+}

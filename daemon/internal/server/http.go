@@ -262,7 +262,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	go c.writer(ctx)
 	s.conns.add(ConnAttempt{From: remoteHost(r.RemoteAddr), Path: PathWebSocket, Result: ResultAccepted, Device: d.ID, Name: d.Name})
 	c.log.Info("connected", "from", r.RemoteAddr)
-	hello := Hello{Name: s.cfg.Name, Version: version.Version, Protocol: version.Protocol, Device: d.ID, Hosts: AdvertiseAddrs(s.BoundAddrs()), Sessions: s.reg.Sessions(), Accounts: s.reg.Accounts(), Permissions: s.reg.Permissions().Pending(),
+	hello := Hello{Name: s.cfg.Name, Version: version.Version, Protocol: version.Protocol, Device: d.ID, Hosts: AdvertiseAddrs(s.BoundAddrs()), Sessions: s.reg.Sessions(), Accounts: s.reg.Accounts(), Permissions: s.reg.Permissions().Pending(), Runs: s.reg.AllRuns(),
 		Features: map[string]bool{"claude": s.cfg.Claude.On(), "codex": s.cfg.Codex.On(), "push": s.cfg.Push.RelayURL != "", "tmux": s.reg.Tmux().Available(ctx)}}
 	c.push("hello", hello)
 	for {

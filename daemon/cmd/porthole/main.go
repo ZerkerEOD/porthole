@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -274,6 +275,11 @@ func statusCmd() *cobra.Command {
 			printListeners(st.Listeners)
 			fmt.Println("recent connections (newest first):")
 			printConnections(st.RecentConnections, 10)
+			var runs []core.Run
+			if err := server.NewLocalClient().Call(cmd.Context(), "GET", "/runs", nil, &runs, 5*time.Second); err == nil {
+				fmt.Println("commands run from the app (newest first):")
+				printRuns(runs, 10)
+			}
 			return nil
 		},
 	}
@@ -292,6 +298,28 @@ func printListeners(ls []server.Listener) {
 			iface = "-"
 		}
 		fmt.Fprintf(tw, "  %s\t%s\t%s\n", l.Addr, iface, l.Kind)
+	}
+	tw.Flush()
+}
+
+func printRuns(rs []core.Run, max int) {
+	if len(rs) == 0 {
+		fmt.Println("  (none)")
+		return
+	}
+	// The daemon lists oldest first.
+	if len(rs) > max {
+		rs = rs[len(rs)-max:]
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(tw, "  ID\tSESSION\tSTATE\tEXIT\tSTARTED")
+	for i := len(rs) - 1; i >= 0; i-- {
+		r := rs[i]
+		exit := "-"
+		if r.Exit != nil {
+			exit = strconv.Itoa(*r.Exit)
+		}
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", r.ID, r.Key, r.State, exit, r.StartedAt.Local().Format("15:04:05"))
 	}
 	tw.Flush()
 }

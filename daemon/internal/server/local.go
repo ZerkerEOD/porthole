@@ -135,6 +135,7 @@ func (l *Local) routes() http.Handler {
 	})
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, l.reg.Sessions()) })
 	mux.HandleFunc("GET /repos", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, l.reg.Repos()) })
+	mux.HandleFunc("GET /runs", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, l.reg.AllRuns()) })
 	mux.HandleFunc("POST /config/reload", func(w http.ResponseWriter, r *http.Request) {
 		ws, rs, err := l.reg.Reload()
 		if err != nil {

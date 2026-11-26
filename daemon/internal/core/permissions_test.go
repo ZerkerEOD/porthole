@@ -110,3 +110,4 @@ func (l listenerFuncs) Pane(string, *tmux.Screen)             {}
 func (l listenerFuncs) PermissionPending(p PermissionRequest) { l.pending(p) }
 func (l listenerFuncs) PermissionResolved(id, why string)     { l.resolved(id, why) }
 func (l listenerFuncs) AccountsUpdated(AccountsSnapshot)      {}
+func (l listenerFuncs) RunUpdated(Run)                        {}

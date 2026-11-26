@@ -58,6 +58,10 @@ type Session struct {
 	// Usage is the session's own token usage (subagents excluded), summed
 	// over its assistant messages.
 	Usage *transcript.Usage `json:"usage,omitempty"`
+	// PendingTasks counts background tasks (background Agent and Bash calls)
+	// launched in the last pendingTaskMaxAge that have not reported
+	// completion. Kept off the wire; it feeds status and notices.
+	PendingTasks int `json:"-"`
 }
 
 // sameSession reports whether a and b hold the same values. Session holds
@@ -108,6 +112,9 @@ type Listener interface {
 	PermissionPending(p PermissionRequest)
 	PermissionResolved(id string, behavior string)
 	AccountsUpdated(a AccountsSnapshot)
+	// RunUpdated reports a new run or a change to one (output, state,
+	// feed-back, window closed).
+	RunUpdated(r Run)
 }
 
 // DeniedTool is one action refused by auto mode.

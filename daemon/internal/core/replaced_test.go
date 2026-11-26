@@ -24,6 +24,7 @@ func (r *recorder) Pane(string, *tmux.Screen)           {}
 func (r *recorder) PermissionPending(PermissionRequest) {}
 func (r *recorder) PermissionResolved(string, string)   {}
 func (r *recorder) AccountsUpdated(AccountsSnapshot)    {}
+func (r *recorder) RunUpdated(Run)                      {}
 
 func TestSpawnPlaceholderReplacedBeforeRemoved(t *testing.T) {
 	r := New(config.Default(), slog.New(slog.NewTextHandler(os.Stderr, nil)))

@@ -250,6 +250,9 @@ func (h *hub) PermissionResolved(id, behavior string) {
 func (h *hub) AccountsUpdated(a core.AccountsSnapshot) {
 	h.each(func(c *conn) { c.push("accounts.update", a) })
 }
+func (h *hub) RunUpdated(r core.Run) {
+	h.each(func(c *conn) { c.push("run.update", r) })
+}
 
 // ---- conn ----
 
@@ -339,7 +342,14 @@ func (c *conn) writer(ctx context.Context) {
 			c.pane = map[string]*tmux.Screen{}
 			c.mu.Unlock()
 			for k, scr := range snaps {
-				b, _ := json.Marshal(PaneMsg{Key: k, Screen: scr})
+				pm := PaneMsg{Key: k, Screen: scr}
+				if sk, id, ok := core.SplitRunPaneKey(k); ok {
+					pm.Key, pm.RunID = sk, id
+					if pane, ok := c.h.reg.RunPaneID(sk, id); ok {
+						pm.PaneID = pane
+					}
+				}
+				b, _ := json.Marshal(pm)
 				m, _ := json.Marshal(Message{Type: "pane.snapshot", Payload: b})
 				wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				err := c.ws.Write(wctx, websocket.MessageText, m)
@@ -351,6 +361,23 @@ func (c *conn) writer(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// paneKey resolves a pane request to the registry's subscription key and,
+// for a run window, the run id. A pane id must belong to one of the
+// session's runs.
+func (c *conn) paneKey(r PaneReq) (key, runID string, err error) {
+	switch {
+	case r.RunID != "":
+		return core.RunPaneKey(r.Key, r.RunID), r.RunID, nil
+	case r.PaneID != "":
+		id, ok := c.h.reg.RunByPane(r.Key, r.PaneID)
+		if !ok {
+			return "", "", errors.New("pane is not a run window of this session")
+		}
+		return core.RunPaneKey(r.Key, id), id, nil
+	}
+	return r.Key, "", nil
 }
 
 // handle dispatches one client message.
@@ -492,39 +519,105 @@ func (c *conn) handle(ctx context.Context, m Message) {
 		c.h.opened(c.device.ID, s.Key)
 		c.reply(m.ID, true, "", s)
 	case "pane.subscribe":
-		var r KeyReq
+		var r PaneReq
 		if err := json.Unmarshal(m.Payload, &r); err != nil {
 			c.reply(m.ID, false, "bad payload", nil)
 			return
 		}
-		c.mu.Lock()
-		already := c.paneSubs[r.Key]
-		c.paneSubs[r.Key] = true
-		c.mu.Unlock()
-		scr, err := reg.SubscribePane(ctx, r.Key)
+		pk, runID, err := c.paneKey(r)
 		if err != nil {
-			c.mu.Lock()
-			delete(c.paneSubs, r.Key)
-			c.mu.Unlock()
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		c.mu.Lock()
+		already := c.paneSubs[pk]
+		c.paneSubs[pk] = true
+		c.mu.Unlock()
+		var scr *tmux.Screen
+		if runID != "" {
+			scr, err = reg.SubscribeRunPane(ctx, r.Key, runID)
+		} else {
+			scr, err = reg.SubscribePane(ctx, r.Key)
+		}
+		if err != nil {
+			if !already {
+				c.mu.Lock()
+				delete(c.paneSubs, pk)
+				c.mu.Unlock()
+			}
 			c.reply(m.ID, false, err.Error(), nil)
 			return
 		}
 		if already {
-			reg.UnsubscribePane(r.Key)
+			reg.UnsubscribePane(pk)
 		}
 		c.h.opened(c.device.ID, r.Key)
-		c.reply(m.ID, true, "", PaneMsg{Key: r.Key, Screen: scr})
+		pm := PaneMsg{Key: r.Key, Screen: scr}
+		if runID != "" {
+			pm.RunID = runID
+			pm.PaneID, _ = reg.RunPaneID(r.Key, runID)
+		}
+		c.reply(m.ID, true, "", pm)
 	case "pane.unsubscribe":
-		var r KeyReq
+		var r PaneReq
 		_ = json.Unmarshal(m.Payload, &r)
+		pk, _, err := c.paneKey(r)
+		if err != nil {
+			// The run may be gone; drop the subscription by run id anyway.
+			pk = core.RunPaneKey(r.Key, r.RunID)
+		}
 		c.mu.Lock()
-		was := c.paneSubs[r.Key]
-		delete(c.paneSubs, r.Key)
+		was := c.paneSubs[pk]
+		delete(c.paneSubs, pk)
 		c.mu.Unlock()
 		if was {
-			reg.UnsubscribePane(r.Key)
+			reg.UnsubscribePane(pk)
 		}
 		c.reply(m.ID, true, "", nil)
+	case "session.run":
+		var r RunReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		run, err := reg.RunCommand(ctx, r.Key, r.Command, r.Feed, c.device.ID)
+		if err != nil {
+			c.log.Warn("run refused", "session", r.Key, "err", err)
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		c.h.opened(c.device.ID, r.Key)
+		c.reply(m.ID, true, "", RunStarted{ID: run.ID})
+	case "run.stop":
+		var r RunKeyReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" || r.ID == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		if err := reg.StopRun(ctx, r.Key, r.ID); err != nil {
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		c.reply(m.ID, true, "", nil)
+	case "run.dismiss":
+		var r RunKeyReq
+		if err := json.Unmarshal(m.Payload, &r); err != nil || r.Key == "" || r.ID == "" {
+			c.reply(m.ID, false, "bad payload", nil)
+			return
+		}
+		if err := reg.DismissRun(ctx, r.Key, r.ID); err != nil {
+			c.reply(m.ID, false, err.Error(), nil)
+			return
+		}
+		c.reply(m.ID, true, "", nil)
+	case "run.list":
+		var r KeyReq
+		_ = json.Unmarshal(m.Payload, &r)
+		runs := reg.AllRuns()
+		if r.Key != "" {
+			runs = reg.Runs(r.Key)
+		}
+		c.reply(m.ID, true, "", RunList{Runs: runs})
 	case "pane.resize":
 		var r ResizeReq
 		if err := json.Unmarshal(m.Payload, &r); err != nil {

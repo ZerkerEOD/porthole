@@ -34,6 +34,8 @@ class DemoDaemonClient extends DaemonClient {
   final Map<String, String> _typed = {};
   int _tick = 0;
   int _spawned = 0;
+  int _runs = 0;
+  final Set<String> _stoppedRuns = {};
   bool _permissionShown = false;
   bool _codexAsked = false;
 
@@ -57,7 +59,7 @@ class DemoDaemonClient extends DaemonClient {
     _push('session.upsert', Map<String, dynamic>.from(j));
   }
 
-  void _append(String key, String type, {String? text, Map<String, dynamic>? tool, Map<String, dynamic>? result, String? level}) {
+  void _append(String key, String type, {String? text, Map<String, dynamic>? tool, Map<String, dynamic>? result, String? level, Map<String, dynamic>? meta}) {
     final seq = (_seq[key] ?? 0) + 1;
     _seq[key] = seq;
     final ev = <String, dynamic>{
@@ -69,6 +71,7 @@ class DemoDaemonClient extends DaemonClient {
       'tool': ?tool,
       'result': ?result,
       'level': ?level,
+      'meta': ?meta,
     };
     (_events[key] ??= []).add(ev);
     _push('event', {'key': key, 'events': [ev]});
@@ -140,6 +143,14 @@ class DemoDaemonClient extends DaemonClient {
           return {'ok': true};
         }
         _typed[key] = '';
+        if (text.startsWith('!')) {
+          // A `!` command: the CLI runs it and records its output.
+          final cmd = text.substring(1).trim();
+          final out = fx.runTail(cmd).last;
+          _append(key, 'command', text: cmd, meta: {'source': 'bang', 'stdout': out, 'stderr': ''});
+          _pane(key);
+          return {'ok': true};
+        }
         if (text.isNotEmpty) _append(key, 'user', text: text);
         _upsert(key, {'status': 'busy'});
         _pane(key);
@@ -148,6 +159,63 @@ class DemoDaemonClient extends DaemonClient {
           _upsert(key, {'status': 'idle'});
           _pane(key);
         });
+        return {'ok': true};
+      case 'session.run':
+        final cmd = (p['command'] as String? ?? '').trim();
+        final feed = p['feed'] != false;
+        final id = 'run-${++_runs}';
+        final started = DateTime.now().toUtc().toIso8601String();
+        final tail = fx.runTail(cmd);
+        Map<String, dynamic> run(String state, String t, {int? exit, bool fed = false}) => {
+          'key': key,
+          'id': id,
+          'command': cmd,
+          'state': state,
+          'exit': ?exit,
+          'tail': t,
+          'started_at': started,
+          if (state != 'running') 'ended_at': DateTime.now().toUtc().toIso8601String(),
+          'fed': fed,
+          'queued': false,
+          'pane_id': '%${40 + _runs}',
+          'device': 'phone',
+        };
+        _later(const Duration(milliseconds: 200), () {
+          if (!_stoppedRuns.contains(id)) _push('run.update', run('running', tail[0]));
+        });
+        _later(const Duration(milliseconds: 1500), () {
+          if (!_stoppedRuns.contains(id)) _push('run.update', run('running', tail[1]));
+        });
+        _later(const Duration(seconds: 3), () {
+          if (_stoppedRuns.contains(id)) return;
+          _push('run.update', run('done', tail[2], exit: 0, fed: feed));
+          if (feed) _append(key, 'user', text: 'I ran this in a separate window: `$cmd`\n\n```\n${tail[2]}\n```');
+        });
+        return {
+          'ok': true,
+          'data': {'id': id},
+        };
+      case 'run.stop':
+        final id = p['id'] as String? ?? '';
+        final r = runs[id];
+        _stoppedRuns.add(id);
+        if (r != null && !r.isDone) {
+          _push('run.update', {
+            'key': r.key,
+            'id': id,
+            'command': r.command,
+            'state': 'stopped',
+            'tail': r.tail,
+            'started_at': r.startedAt?.toIso8601String(),
+            'ended_at': DateTime.now().toUtc().toIso8601String(),
+            'fed': false,
+            'queued': false,
+            'pane_id': r.paneId,
+            'device': r.device,
+          });
+        }
+        return {'ok': true};
+      case 'run.dismiss':
         return {'ok': true};
       case 'session.keys':
         final keys = (p['keys'] as List? ?? const []).cast<String>();

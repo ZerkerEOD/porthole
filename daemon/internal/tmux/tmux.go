@@ -297,6 +297,50 @@ func (c *Client) NewSession(ctx context.Context, name, dir string, argv []string
 	return id, nil
 }
 
+// NewWindow opens a detached window named name in the existing session,
+// running argv in dir, and returns its pane id. The window stays open after
+// the program exits so its last screen can still be read.
+func (c *Client) NewWindow(ctx context.Context, session, name, dir string, argv []string) (string, error) {
+	if !sessionNameRe.MatchString(session) {
+		return "", errors.New("tmux: invalid session name")
+	}
+	if !sessionNameRe.MatchString(name) {
+		return "", errors.New("tmux: invalid window name")
+	}
+	if len(argv) == 0 {
+		return "", errors.New("tmux: empty command")
+	}
+	// "=name:" targets the session by exact name and lets tmux pick the
+	// next free window index.
+	args := []string{"new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "=" + session + ":", "-n", name, "-c", dir, "--"}
+	args = append(args, argv...)
+	out, err := c.run(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(out)
+	if !ValidPaneID(id) {
+		return "", fmt.Errorf("tmux: unexpected pane id %q", id)
+	}
+	_, _ = c.run(ctx, "set-option", "-w", "-t", id, "remain-on-exit", "on")
+	return id, nil
+}
+
+// KillWindow closes the window that holds the pane.
+func (c *Client) KillWindow(ctx context.Context, paneID string) error {
+	if !ValidPaneID(paneID) {
+		return errors.New("tmux: invalid pane id")
+	}
+	_, err := c.run(ctx, "kill-window", "-t", paneID)
+	return err
+}
+
+// NewPrivateClient returns a client bound to its own tmux server socket
+// (tmux -L name), separate from the user's default server. Tests use it.
+func NewPrivateClient(binary, socket string) *Client {
+	return &Client{Binary: binary, extraArgs: []string{"-L", socket}}
+}
+
 // serverRunning reports whether a tmux server answers.
 func (c *Client) serverRunning(ctx context.Context) bool {
 	_, err := c.run(ctx, "list-sessions")

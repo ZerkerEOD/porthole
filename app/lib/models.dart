@@ -492,3 +492,58 @@ class Repo {
   final String name, path, branch, lastProvider;
   final DateTime? lastUsed;
 }
+
+/// A shell command the daemon runs in its own tmux window next to a session
+/// (`session.run`), as pushed in `run.update` and listed in hello.
+class Run {
+  Run.fromJson(Map<String, dynamic> j)
+    : key = j['key'] as String? ?? '',
+      id = j['id'] as String? ?? '',
+      command = j['command'] as String? ?? '',
+      state = j['state'] as String? ?? 'running',
+      exit = (j['exit'] as num?)?.toInt(),
+      tail = j['tail'] as String? ?? '',
+      startedAt = DateTime.tryParse(j['started_at'] as String? ?? ''),
+      endedAt = DateTime.tryParse(j['ended_at'] as String? ?? ''),
+      fed = j['fed'] as bool? ?? false,
+      queued = j['queued'] as bool? ?? false,
+      paneId = j['pane_id'] as String? ?? '',
+      device = j['device'] as String? ?? '';
+
+  final String key, id, command, state, tail, paneId, device;
+
+  /// The exit code once the command has finished; null while running or
+  /// when it was stopped before it could report one.
+  final int? exit;
+  final DateTime? startedAt, endedAt;
+
+  /// The output was typed into the session.
+  final bool fed;
+
+  /// The output waits for the session's current turn to end.
+  final bool queued;
+
+  bool get isDone => state != 'running';
+  bool get stopped => state == 'stopped';
+
+  /// Finished badly: stopped, or a non-zero exit.
+  bool get failed => stopped || (isDone && (exit ?? 0) != 0);
+
+  /// The tail without trailing blank lines.
+  List<String> get tailLines {
+    final lines = tail.replaceAll('\r', '').split('\n');
+    while (lines.isNotEmpty && lines.last.trim().isEmpty) {
+      lines.removeLast();
+    }
+    return lines;
+  }
+
+  /// How long it ran, or has been running so far.
+  Duration elapsed([DateTime? now]) {
+    final start = startedAt;
+    if (start == null) return Duration.zero;
+    final end = endedAt ?? (isDone ? start : (now ?? DateTime.now()));
+    final d = end.difference(start);
+    return d.isNegative ? Duration.zero : d;
+  }
+}

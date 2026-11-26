@@ -6,12 +6,23 @@ import 'package:gpt_markdown/gpt_markdown.dart';
 
 import '../models.dart';
 
+/// How a shell block from the chat is run: typed into the session as
+/// `!command`, or in a tmux window of its own next to the session.
+enum RunMode { bang, window }
+
 /// One chat row. Tool uses and their results are paired by the caller.
 class EventTile extends StatelessWidget {
-  const EventTile({super.key, required this.event, this.result, this.showThinking = false});
+  const EventTile({super.key, required this.event, this.result, this.showThinking = false, this.onRun, this.canBang = false});
   final Event event;
   final Event? result;
   final bool showThinking;
+
+  /// Runs a shell block from an assistant message; null hides the run
+  /// actions (read-only views such as a subagent's transcript).
+  final void Function(String command, RunMode mode)? onRun;
+
+  /// The session is at its prompt, so a `!` command can be typed now.
+  final bool canBang;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +44,11 @@ class EventTile extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             if (event.sidechain) _chip(context, 'subagent', cs.tertiary),
-            GptMarkdown(event.text, style: Theme.of(context).textTheme.bodyMedium),
+            GptMarkdown(
+              event.text,
+              style: Theme.of(context).textTheme.bodyMedium,
+              codeBuilder: (context, name, code, closed) => CodeBlockView(lang: name, code: code, onRun: closed ? onRun : null, canBang: canBang),
+            ),
             if (event.truncated) _truncNote(context),
           ]),
         );
@@ -45,6 +60,8 @@ class EventTile extends StatelessWidget {
           color: cs.outline,
           child: Text(event.text, style: TextStyle(color: cs.onSurfaceVariant, fontStyle: FontStyle.italic, fontSize: 13)),
         );
+      case 'command':
+        return CommandBlock(event: event);
       case 'tool.use':
         if (event.tool?.isQuestion ?? false) return _QuestionTile(use: event, result: result);
         return _ToolCard(use: event, result: result);
@@ -260,6 +277,257 @@ class _ToolCard extends StatelessWidget {
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerLowest, borderRadius: BorderRadius.circular(6)),
       child: SelectableText(clipped, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+    );
+  }
+}
+
+/// The output of a `!` or slash command the session ran, as a terminal
+/// block: the command, stdout, then stderr in the error colour.
+class CommandBlock extends StatefulWidget {
+  const CommandBlock({super.key, required this.event});
+  final Event event;
+
+  /// Lines shown before the block collapses.
+  static const maxLines = 20;
+
+  @override
+  State<CommandBlock> createState() => _CommandBlockState();
+}
+
+class _CommandBlockState extends State<CommandBlock> {
+  bool _all = false;
+
+  static List<String> _lines(Object? v) {
+    final s = (v is String ? v : '').replaceAll('\r', '').replaceFirst(RegExp(r'\n+$'), '');
+    return s.isEmpty ? const [] : s.split('\n');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final meta = widget.event.meta ?? const {};
+    final command = widget.event.text.trim();
+    final out = _lines(meta['stdout']);
+    final err = _lines(meta['stderr']);
+    final total = out.length + err.length;
+    final collapse = total > CommandBlock.maxLines && !_all;
+    final shownOut = collapse ? out.take(CommandBlock.maxLines).toList() : out;
+    final shownErr = collapse ? err.take(CommandBlock.maxLines - shownOut.length).toList() : err;
+    final source = switch (meta['source']) {
+      'bang' => 'ran with !',
+      'slash' => 'slash command',
+      _ => '',
+    };
+    const mono = TextStyle(fontFamily: 'monospace', fontSize: 12);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: cs.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: command.isEmpty
+                    ? Text('Command output', style: Theme.of(context).textTheme.labelMedium)
+                    : SelectableText('\$ $command', style: mono.copyWith(fontWeight: FontWeight.w600)),
+              ),
+              if (source.isNotEmpty) Padding(padding: const EdgeInsets.only(left: 8), child: _chip(context, source, cs.outline)),
+            ],
+          ),
+          if (shownOut.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: SelectableText(shownOut.join('\n'), style: mono),
+            ),
+          if (shownErr.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: SelectableText(shownErr.join('\n'), style: mono.copyWith(color: cs.error)),
+            ),
+          if (total == 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('(no output)', style: Theme.of(context).textTheme.labelSmall),
+            ),
+          if (total > CommandBlock.maxLines)
+            TextButton(
+              style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 32), visualDensity: VisualDensity.compact),
+              onPressed: () => setState(() => _all = !_all),
+              child: Text(_all ? 'Show less' : 'Show all $total lines'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Fence languages that are always shell.
+const _shellLangs = {'sh', 'bash', 'zsh', 'shell', 'console'};
+
+/// Commands that mark an unlabelled block as shell when its first line
+/// starts with one.
+const _shellWords = [
+  'cd',
+  'git',
+  'go',
+  'npm',
+  'npx',
+  'pnpm',
+  'yarn',
+  'flutter',
+  'dart',
+  'porthole',
+  'sudo',
+  'make',
+  'systemctl',
+  'journalctl',
+  'curl',
+  'wget',
+  'docker',
+  'kubectl',
+  'python',
+  'python3',
+  'pip',
+];
+const _shellPaths = ['./', '~/', '/'];
+
+/// The command text of a fenced block when it is shell, or null when it is
+/// not. A `console` block keeps only its `$ ` lines, without the prompt
+/// (all lines when none has one).
+String? shellCommand(String lang, String code) {
+  final l = lang.trim().toLowerCase();
+  final text = _dedent(code.replaceAll('\r', ''));
+  if (l == 'console') {
+    final lines = text.split('\n');
+    final prompted = [
+      for (final line in lines)
+        if (line.trimLeft().startsWith(r'$ ')) line.trimLeft().substring(2),
+    ];
+    final cmd = (prompted.isNotEmpty ? prompted : lines).join('\n');
+    return cmd.trim().isEmpty ? null : cmd;
+  }
+  if (_shellLangs.contains(l)) return text.trim().isEmpty ? null : text;
+  if (l.isNotEmpty) return null;
+  final first = text.split('\n').map((x) => x.trim()).firstWhere((x) => x.isNotEmpty, orElse: () => '');
+  if (first.isEmpty) return null;
+  final word = first.split(RegExp(r'\s+')).first;
+  if (_shellWords.contains(word) || _shellPaths.any(first.startsWith)) return text;
+  return null;
+}
+
+/// [code] without surrounding blank lines and without the indent every
+/// line shares.
+String _dedent(String code) {
+  final lines = code.split('\n');
+  while (lines.isNotEmpty && lines.first.trim().isEmpty) {
+    lines.removeAt(0);
+  }
+  while (lines.isNotEmpty && lines.last.trim().isEmpty) {
+    lines.removeLast();
+  }
+  final indents = [
+    for (final l in lines)
+      if (l.trim().isNotEmpty) l.length - l.trimLeft().length,
+  ];
+  final cut = indents.isEmpty ? 0 : indents.reduce((a, b) => a < b ? a : b);
+  return [for (final l in lines) l.length >= cut ? l.substring(cut) : l.trimLeft()].join('\n');
+}
+
+/// [command] as one line for `!`, its lines joined with ` && `, or null
+/// when a line is not a simple command (a continuation, a heredoc or a
+/// comment).
+String? bangCommand(String command) {
+  final lines = [
+    for (final l in command.split('\n'))
+      if (l.trim().isNotEmpty) l.trim(),
+  ];
+  if (lines.isEmpty) return null;
+  for (final l in lines) {
+    if (l.endsWith('\\') || l.contains('<<') || l.startsWith('#')) return null;
+    // A line that already ends in an operator or opens a compound command
+    // would not survive being joined with "&&".
+    if (RegExp(r'(;|&&|\|\||\||&|\{|\bthen|\bdo|\belse)$').hasMatch(l)) return null;
+  }
+  return lines.join(' && ');
+}
+
+/// A fenced code block in an assistant message: monospace, scrolls
+/// sideways, with Copy and, for shell, the two ways to run it.
+class CodeBlockView extends StatelessWidget {
+  const CodeBlockView({super.key, required this.lang, required this.code, this.onRun, this.canBang = false});
+  final String lang;
+  final String code;
+  final void Function(String command, RunMode mode)? onRun;
+  final bool canBang;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final text = code.replaceFirst(RegExp(r'\n+$'), '');
+    final run = onRun;
+    final command = run == null ? null : shellCommand(lang, text);
+    final bang = command == null ? null : bangCommand(command);
+    Widget tool(Key key, IconData icon, String tip, VoidCallback? onTap) => Tooltip(
+      message: tip,
+      child: IconButton(
+        key: key,
+        visualDensity: VisualDensity.compact,
+        iconSize: 16,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        icon: Icon(icon),
+        onPressed: onTap,
+      ),
+    );
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(color: cs.surfaceContainerLowest, borderRadius: BorderRadius.circular(8)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 10),
+                  child: Text(lang.trim(), style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
+                ),
+              ),
+              if (command != null && bang != null)
+                tool(
+                  const ValueKey('run-bang'),
+                  Icons.play_arrow,
+                  canBang ? 'Run with !' : 'The session is busy; use Run in a window',
+                  canBang ? () => run!(bang, RunMode.bang) : null,
+                ),
+              if (command != null)
+                tool(
+                  const ValueKey('run-window'),
+                  Icons.open_in_new,
+                  bang != null ? 'Run in a window' : 'multi-line: run in a window',
+                  () => run!(command, RunMode.window),
+                ),
+              tool(const ValueKey('copy-code'), Icons.copy, 'Copy', () {
+                Clipboard.setData(ClipboardData(text: text));
+                ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('Copied')));
+              }),
+            ],
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            child: SelectableText(text, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          ),
+        ],
+      ),
     );
   }
 }

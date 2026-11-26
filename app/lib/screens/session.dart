@@ -8,6 +8,7 @@ import '../main.dart';
 import '../models.dart';
 import '../widgets/composer.dart';
 import '../widgets/event_tile.dart';
+import '../widgets/run_card.dart';
 import '../widgets/terminal.dart';
 import 'agents.dart';
 import 'new_session.dart';
@@ -56,6 +57,10 @@ class _SessionScreenState extends State<SessionScreen> {
   /// The question set answered from here, so its strip stays hidden until
   /// the daemon catches up.
   String? _answeredId;
+
+  /// The run whose tmux window the terminal view shows instead of the
+  /// session's own pane; null for the session pane.
+  Run? _runPane;
 
   Session? get _session => widget.client.sessions[_key];
 
@@ -137,6 +142,7 @@ class _SessionScreenState extends State<SessionScreen> {
       _results.clear();
       _screen = null;
       _paneError = null;
+      _runPane = null;
     });
     widget.client.unsubscribe(old);
     if (_terminal) widget.client.unsubscribePane(old);
@@ -225,10 +231,23 @@ class _SessionScreenState extends State<SessionScreen> {
   Future<void> _subscribePane() async {
     final key = _key;
     if (mounted && _paneError != null) setState(() => _paneError = null);
+    final run = _runPane;
     try {
-      final scr = await widget.client.subscribePane(key);
-      if (mounted && key == _key) setState(() => _screen = scr);
+      final scr = run != null ? await widget.client.subscribeRunPane(key, run.paneId) : await widget.client.subscribePane(key);
+      if (mounted && key == _key && _runPane == run) setState(() => _screen = scr);
     } catch (e) {
+      if (run != null) {
+        // The window could not be opened: say why and go back to the
+        // session's own pane.
+        _toast('Could not open the window: ${_describe(e)}');
+        if (!mounted || key != _key || _runPane != run) return;
+        setState(() {
+          _runPane = null;
+          _screen = null;
+        });
+        if (_terminal) _subscribePane();
+        return;
+      }
       if (mounted && key == _key) {
         setState(() {
           _screen = null;
@@ -244,12 +263,85 @@ class _SessionScreenState extends State<SessionScreen> {
       _terminal = on;
       _screen = null;
       _paneError = null;
+      _runPane = null;
     });
     if (on) {
       _subscribePane();
       if (_draftFor(_pendingQuestion()) != null) _toast('Draft answers are kept until you submit. The terminal shows the live dialog.');
     } else {
       widget.client.unsubscribePane(_key);
+    }
+  }
+
+  /// Switches the terminal view to [run]'s tmux window.
+  void _openRunWindow(Run run) {
+    setState(() {
+      _terminal = true;
+      _runPane = run;
+      _screen = null;
+      _paneError = null;
+    });
+    _subscribePane();
+  }
+
+  /// Back from a run's window to the session's own pane.
+  void _closeRunWindow() {
+    setState(() {
+      _runPane = null;
+      _screen = null;
+      _paneError = null;
+    });
+    _subscribePane();
+  }
+
+  /// True when a `!` command can be typed now: the session takes input and
+  /// sits at its prompt with nothing open.
+  bool get _canBang {
+    final s = _session;
+    if (s == null || !s.controllable) return false;
+    return s.status == 'idle' || (s.status == 'waiting_input' && s.question == null);
+  }
+
+  /// Runs a shell block from the chat after the person confirms it.
+  Future<void> _runFromChat(String command, RunMode mode) async {
+    final feed = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _RunSheet(command: command, mode: mode),
+    );
+    if (feed == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (mode == RunMode.bang) {
+      if (!_canBang) {
+        _toast('The session is busy; use Run in a window');
+        return;
+      }
+      try {
+        await _sendText('!$command', enter: true);
+      } on _SendError catch (e) {
+        _toast('Command not sent: ${e.message}');
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _stickToBottom = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      });
+      return;
+    }
+    try {
+      await widget.client.runCommand(_key, command, feed: feed);
+    } catch (e) {
+      if (mounted) messenger.showSnackBar(SnackBar(content: Text('Could not start the command: ${_describe(e)}')));
+    }
+  }
+
+  Future<void> _runAction(Future<void> Function() f, String what) async {
+    try {
+      await f();
+    } catch (e) {
+      _toast('Could not $what: ${_describe(e)}');
     }
   }
 
@@ -371,6 +463,7 @@ class _SessionScreenState extends State<SessionScreen> {
     final client = widget.client;
     final question = _pendingQuestion();
     final machine = client.info.displayName;
+    final runs = client.runs.values.where((r) => r.key == _key).toList()..sort((a, b) => (b.startedAt ?? DateTime(0)).compareTo(a.startedAt ?? DateTime(0)));
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -467,6 +560,15 @@ class _SessionScreenState extends State<SessionScreen> {
               content: const Text('This session is not running inside tmux, so it is read-only here. Start sessions with `porthole wrap` or from the app to control them.'),
               actions: const [SizedBox.shrink()],
             ),
+          for (final r in runs)
+            RunCard(
+              key: ValueKey('runcard-${r.id}'),
+              run: r,
+              onStop: () => _runAction(() => client.stopRun(_key, r.id), 'stop the command'),
+              onOpen: controllable ? () => _openRunWindow(r) : null,
+              onDismiss: () => _runAction(() => client.dismissRun(_key, r.id), 'dismiss the command'),
+            ),
+          if (_terminal && _runPane != null) _runWindowStrip(_runPane!),
           Expanded(child: _terminal ? _terminalBody() : _chatBody()),
           if (!_terminal)
             Composer(
@@ -479,7 +581,7 @@ class _SessionScreenState extends State<SessionScreen> {
               onChanged: (t) => client.setComposerDraft(_key, t),
               onSend: (t) => _sendText(t, enter: true),
             ),
-          if (_terminal)
+          if (_terminal && _runPane == null)
             Composer(
               key: ValueKey('tcomposer-$_key'),
               enabled: controllable,
@@ -500,7 +602,28 @@ class _SessionScreenState extends State<SessionScreen> {
 
   String _shortModel(String m) => m.replaceFirst('claude-', '').replaceAll(RegExp(r'-\d{8}$'), '');
 
-  Widget _terminalBody() => TerminalView(screen: _screen, error: _paneError, onRetry: _subscribePane, onKeys: _sendKeys, onText: _typeText);
+  Widget _terminalBody() => _runPane != null
+      ? TerminalView(screen: _screen, error: _paneError, onRetry: _subscribePane, onKeys: (_) => _viewOnly(), onText: (_, _) => _viewOnly())
+      : TerminalView(screen: _screen, error: _paneError, onRetry: _subscribePane, onKeys: _sendKeys, onText: _typeText);
+
+  void _viewOnly() => _toast('This window is view-only here. Stop the command from its card.');
+
+  /// Above the terminal while it shows a run's window.
+  Widget _runWindowStrip(Run r) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 2, 8, 2),
+        child: Row(children: [
+          Icon(Icons.open_in_new, size: 16, color: cs.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Window: \$ ${r.command.replaceAll('\n', ' ')}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
+          TextButton(onPressed: _closeRunWindow, child: const Text('Session pane')),
+        ]),
+      ),
+    );
+  }
 
   Widget _chatBody() {
     final s = _session;
@@ -527,7 +650,13 @@ class _SessionScreenState extends State<SessionScreen> {
           return const SizedBox(height: 4);
         }
         final e = _events[i - 1];
-        return EventTile(event: e, result: e.tool != null ? _results[e.tool!.id] : null, showThinking: _showThinking);
+        return EventTile(
+          event: e,
+          result: e.tool != null ? _results[e.tool!.id] : null,
+          showThinking: _showThinking,
+          onRun: (s?.controllable ?? false) ? _runFromChat : null,
+          canBang: _canBang,
+        );
       },
     );
   }
@@ -704,6 +833,79 @@ class _ModeSheet extends StatelessWidget {
             child: Text('Changing the mode presses Shift+Tab in the terminal on your behalf. Auto mode is only offered when this account has it.', style: Theme.of(context).textTheme.bodySmall),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Confirms a run from the chat: the exact command, what will happen, and
+/// for a window whether the output goes back to the session. Pops the feed
+/// choice (true for `!`), or null on Cancel.
+class _RunSheet extends StatefulWidget {
+  const _RunSheet({required this.command, required this.mode});
+  final String command;
+  final RunMode mode;
+  @override
+  State<_RunSheet> createState() => _RunSheetState();
+}
+
+class _RunSheetState extends State<_RunSheet> {
+  bool _feed = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final bang = widget.mode == RunMode.bang;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(bang ? 'Run with !' : 'Run in a window', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.4),
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(color: cs.surfaceContainerLowest, borderRadius: BorderRadius.circular(8)),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(10),
+                  child: SelectableText(
+                    bang ? '!${widget.command}' : widget.command,
+                    key: const ValueKey('run-sheet-command'),
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              bang
+                  ? 'Typed into the session as `!…`; the output lands in the conversation.'
+                  : 'Runs in a tmux window next to the session; the output is sent to the session when it finishes.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (!bang)
+              SwitchListTile(
+                key: const ValueKey('run-sheet-feed'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Send output to the session'),
+                value: _feed,
+                onChanged: (v) => setState(() => _feed = v),
+              ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+                const SizedBox(width: 8),
+                FilledButton(key: const ValueKey('run-sheet-run'), onPressed: () => Navigator.of(context).pop(bang ? true : _feed), child: const Text('Run')),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

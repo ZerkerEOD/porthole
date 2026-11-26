@@ -107,8 +107,10 @@ porthole status
 
 Prints the version, machine name, pid, uptime, session and device counts,
 whether tmux and cswap were detected, the bound addresses with the interface
-and kind (loopback, lan, vpn) of each, and the last ten connection attempts
-from phones: time, source address, path, result and device.
+and kind (loopback, lan, vpn) of each, the last ten connection attempts
+from phones (time, source address, path, result and device), and the last
+ten commands run from a phone with **Run in a window** (id, session, state,
+exit code and start time).
 
 ### `sessions`
 

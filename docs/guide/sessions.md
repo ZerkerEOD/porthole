@@ -123,6 +123,35 @@ header notes the last one ("Auto mode blocked Bash, 2m ago") and the terminal
 lists them under `/permissions`. After several blocks Claude Code pauses auto
 mode and prompts normally, which the app then shows as above.
 
+## Running a suggested command
+
+When Claude's reply contains a shell block, the block carries three actions:
+**Copy**, **Run with !** and **Run in a window**. Both run paths show the
+exact command first and wait for you to confirm.
+
+**Run with !** types the command into the session the way you would at the
+keyboard, with Claude Code's `!` prefix. The command runs in the session's
+own shell, and its output is recorded in the conversation, so Claude sees
+it on the next turn. The chat shows it as a command block: the command line,
+then stdout, then stderr. The `!` prefix only works while the session is at
+its prompt, so this action is disabled while Claude is working, and it is
+offered only for blocks whose lines are plain commands (no heredocs, no line
+continuations); several lines are joined with `&&`.
+
+**Run in a window** is for long commands, multi-line blocks, or a session
+that is busy. The daemon opens a tmux window next to the session, runs the
+command there and streams the last lines into a card under the session
+header, with **Stop**, **Open window** and **Dismiss**. When the command
+exits, the daemon types one message into the session with the command, the
+last 120 lines of output and the exit code, so the result reaches Claude
+the same way. If the session was busy, Claude Code queues that message as
+the next turn and the card says so. Switch **Send output to the session**
+off in the confirmation to keep the output on the card only.
+
+Both actions run with your account on the machine, exactly as typing into
+the terminal would; the daemon logs every run with the device that asked
+and the exit code, and `porthole status` lists the last ten.
+
 ## Subagents
 
 When Claude Code hands work to a subagent (its Agent tool), the CLI writes
@@ -174,9 +203,12 @@ Notifications follow three rules. They are sent only for sessions you opened
 from the phone: started with **New session**, or viewed in the app at least
 once. They are sent only when the session needs you: a permission prompt, a
 question, or a turn that has finished and is waiting for your next message.
-Each of those sends one notice per wait; the session going busy again resets
-it. Sessions running in your own terminals that you never opened in the app
-stay silent.
+Each of those sends one notice per wait; a new message from you starts the
+next wait. A turn that ends while subagents or background commands are still
+running is not finished: the notice waits until that work is done and the
+session has stayed idle for a moment, and if the work wakes Claude again
+nothing is sent. Sessions running in your own terminals that you never
+opened in the app stay silent.
 
 With **Notify while connected** on, the app raises those notices itself while
 it is open, and on Android also in the background when **Stay connected in the
