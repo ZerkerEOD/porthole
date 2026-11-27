@@ -1,0 +1,1674 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A self-hosted phone remote for Claude Code and Codex sessions on your own machine">
+      
+      
+        <meta name="author" content="ZerkerEOD">
+      
+      
+        <link rel="canonical" href="https://zerkersec.io/porthole/docs/dev/self-host/app/">
+      
+      
+        <link rel="prev" href="../../guide/cli/">
+      
+      
+        <link rel="next" href="../relay/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
+    
+    
+      
+        <title>Build the app yourself - Porthole</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#build-the-app-yourself" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Porthole" class="md-header__button md-logo" aria-label="Porthole" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Porthole
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Build the app yourself
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ZerkerEOD/porthole" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZerkerEOD/porthole
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Porthole" class="md-nav__button md-logo" aria-label="Porthole" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Porthole
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ZerkerEOD/porthole" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZerkerEOD/porthole
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install the daemon
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows (WSL2)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/pairing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pair a phone
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/push/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Self-hosting
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Self-hosting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build the app yourself
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build the app yourself
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-you-need-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When you need this
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pick-your-own-app-id-and-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pick your own app id and name
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#apple-ios-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Apple (iOS only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#firebase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Firebase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#storejson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        store.json
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Build">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#android" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Android
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        iOS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relay-with-the-same-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relay with the same project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../relay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push relay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/ios-background/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    iOS background behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../privacy-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../terms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Terms of service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-you-need-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When you need this
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pick-your-own-app-id-and-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pick your own app id and name
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#apple-ios-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Apple (iOS only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#firebase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Firebase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#storejson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        store.json
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Build">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#android" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Android
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        iOS
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relay-with-the-same-project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relay with the same project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="build-the-app-yourself">Build the app yourself<a class="headerlink" href="#build-the-app-yourself" title="Permanent link">&para;</a></h1>
+<h2 id="when-you-need-this">When you need this<a class="headerlink" href="#when-you-need-this" title="Permanent link">&para;</a></h2>
+<p>A push token belongs to the Firebase project the app was built with, and the
+relay can only send to tokens of the project its service account comes from
+(<code>relay/src/index.ts</code> posts to
+<code>https://fcm.googleapis.com/v1/projects/&lt;project&gt;/messages:send</code>, where
+<code>&lt;project&gt;</code> is <code>FCM_PROJECT_ID</code> or the service account's <code>project_id</code>). So the
+app build and the relay must use the same Firebase project. The store builds
+carry the project's own Firebase options, which means they only work with the
+hosted relay. To use <a href="../relay/">your own relay</a>, build the app with your own
+Firebase project as described here.</p>
+<p>If you do not want push at all, build without <code>--dart-define-from-file</code>: the
+app then has no <strong>Push relay</strong> field in Settings and everything else works
+(see <a href="../../guide/push/#builds-without-push">Builds without push</a>).</p>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Needs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Both</td>
+<td>Flutter with Dart 3.11.4 or later (<code>environment.sdk</code> in <code>app/pubspec.yaml</code>), a clone of the repository</td>
+</tr>
+<tr>
+<td>Android</td>
+<td>Java 17 (<code>compileOptions</code> in <code>app/android/app/build.gradle.kts</code>), an Android SDK; the app targets API 26 and up (<code>minSdk</code>)</td>
+</tr>
+<tr>
+<td>iOS</td>
+<td>A Mac with Xcode and CocoaPods (<code>app/ios/Podfile</code>, iOS 15 and up), and an Apple Developer Program membership: the App ID's Push Notifications capability and the APNs key are registered under it</td>
+</tr>
+</tbody>
+</table>
+<h2 id="pick-your-own-app-id-and-name">Pick your own app id and name<a class="headerlink" href="#pick-your-own-app-id-and-name" title="Permanent link">&para;</a></h2>
+<p><code>io.zerkersec.porthole</code> is the project's own id. Firebase registers apps by
+id, so choose your own (for example <code>com.example.myremote</code>) and set it in
+every place below before you register anything with Apple or Firebase.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>app/android/app/build.gradle.kts</code></td>
+<td><code>namespace</code> (line 19) and <code>applicationId</code> (line 35)</td>
+</tr>
+<tr>
+<td><code>app/android/app/src/main/kotlin/io/zerkersec/porthole/MainActivity.kt</code></td>
+<td>the <code>package</code> line; move the file to the matching directory</td>
+</tr>
+<tr>
+<td><code>app/ios/Runner.xcodeproj/project.pbxproj</code></td>
+<td>the three <code>PRODUCT_BUNDLE_IDENTIFIER = io.zerkersec.porthole;</code> lines (the Runner target); the <code>RunnerTests</code> entries follow the same prefix</td>
+</tr>
+<tr>
+<td><code>app/android/app/src/main/AndroidManifest.xml</code></td>
+<td><code>android:label</code></td>
+</tr>
+<tr>
+<td><code>app/ios/Runner/Info.plist</code></td>
+<td><code>CFBundleDisplayName</code> and <code>CFBundleName</code></td>
+</tr>
+</tbody>
+</table>
+<p>The name and icon are covered by <code>TRADEMARKS.md</code>: a modified build may not be
+published under the Porthole name or icon, so a fork picks its own. Icons are
+generated from <code>app/assets/icon/*.svg</code> with <code>dart run flutter_launcher_icons</code>
+(see <code>app/README.md</code>).</p>
+<h2 id="apple-ios-only">Apple (iOS only)<a class="headerlink" href="#apple-ios-only" title="Permanent link">&para;</a></h2>
+<p>At developer.apple.com, Certificates, Identifiers &amp; Profiles:</p>
+<ol>
+<li>Identifiers, +, App IDs, App. Bundle ID explicit, your id from above, tick
+   <strong>Push Notifications</strong>, Register.</li>
+<li>Keys, +, tick <strong>Apple Push Notifications service (APNs)</strong>, Continue,
+   Register, Download. The file is <code>AuthKey_&lt;KEYID&gt;.p8</code> and can be downloaded
+   only once; keep the Key ID.</li>
+<li>Membership details: note the 10-character Team ID. Firebase asks for it
+   with the APNs key.</li>
+</ol>
+<h2 id="firebase">Firebase<a class="headerlink" href="#firebase" title="Permanent link">&para;</a></h2>
+<p>At console.firebase.google.com:</p>
+<ol>
+<li>Create a project. Google Analytics is not needed.</li>
+<li>Project Overview, Add app, Android. Package name: your Android
+   <code>applicationId</code>. Register, then <strong>Download google-services.json</strong>.</li>
+<li>Add app, iOS. Bundle ID: your iOS bundle id. Register, then <strong>Download
+   GoogleService-Info.plist</strong>.</li>
+<li>iOS only: Project settings (gear), Cloud Messaging, Apple app
+   configuration, APNs Authentication Key, Upload the <code>.p8</code> with its Key ID and
+   your Team ID.</li>
+<li>Project settings, Service accounts, Firebase Admin SDK, <strong>Generate new
+   private key</strong>. This JSON file is the relay's <code>FCM_SERVICE_ACCOUNT</code>.</li>
+</ol>
+<p>The two config files are not read by the build. There is no google-services
+Gradle plugin in <code>app/android/app/build.gradle.kts</code> and no plist in the Xcode
+project; <code>app/lib/push.dart</code> builds <code>FirebaseOptions</code> from the values below.
+Both file names are gitignored, so keep them outside the checkout and copy
+values out of them.</p>
+<h2 id="storejson">store.json<a class="headerlink" href="#storejson" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>app
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>cp<span class="w"> </span>dart_defines/store.example.json<span class="w"> </span>dart_defines/store.json
+</code></pre></div>
+<p><code>dart_defines/store.json</code> is gitignored. Fill each key from the config files
+(<code>app/lib/config.dart</code> reads them with <code>String.fromEnvironment</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Used on</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FB_API_KEY</code></td>
+<td>Android</td>
+<td><code>google-services.json</code>: <code>client[].api_key[].current_key</code></td>
+</tr>
+<tr>
+<td><code>FB_APP_ID</code></td>
+<td>Android</td>
+<td><code>google-services.json</code>: <code>client[].client_info.mobilesdk_app_id</code> (the <code>1:…:android:…</code> value)</td>
+</tr>
+<tr>
+<td><code>FB_IOS_API_KEY</code></td>
+<td>iOS</td>
+<td><code>GoogleService-Info.plist</code>: <code>API_KEY</code></td>
+</tr>
+<tr>
+<td><code>FB_IOS_APP_ID</code></td>
+<td>iOS</td>
+<td><code>GoogleService-Info.plist</code>: <code>GOOGLE_APP_ID</code> (the <code>1:…:ios:…</code> value)</td>
+</tr>
+<tr>
+<td><code>FB_SENDER_ID</code></td>
+<td>both</td>
+<td><code>google-services.json</code>: <code>project_info.project_number</code>, the same as the plist's <code>GCM_SENDER_ID</code></td>
+</tr>
+<tr>
+<td><code>FB_PROJECT_ID</code></td>
+<td>both</td>
+<td><code>google-services.json</code>: <code>project_info.project_id</code>, the same as the plist's <code>PROJECT_ID</code></td>
+</tr>
+<tr>
+<td><code>FB_IOS_BUNDLE_ID</code></td>
+<td>iOS</td>
+<td><code>GoogleService-Info.plist</code>: <code>BUNDLE_ID</code> (your iOS bundle id)</td>
+</tr>
+</tbody>
+</table>
+<p>If <code>google-services.json</code> lists several <code>client</code> entries, take the one whose
+<code>client_info.android_client_info.package_name</code> is your <code>applicationId</code>. The
+app treats itself as push capable when the API key, app id, sender id and
+project id for the running platform are all set (<code>pushCapable</code> in
+<code>app/lib/config.dart</code>); an Android-only build can leave the three <code>FB_IOS_*</code>
+keys empty, and an iOS-only build can leave <code>FB_API_KEY</code> and <code>FB_APP_ID</code>
+empty.</p>
+<h2 id="build">Build<a class="headerlink" href="#build" title="Permanent link">&para;</a></h2>
+<h3 id="android">Android<a class="headerlink" href="#android" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">cd</span><span class="w"> </span>app
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>flutter<span class="w"> </span>pub<span class="w"> </span>get
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>flutter<span class="w"> </span>build<span class="w"> </span>apk<span class="w"> </span>--release<span class="w"> </span>--dart-define-from-file<span class="o">=</span>dart_defines/store.json
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>adb<span class="w"> </span>install<span class="w"> </span>build/app/outputs/flutter-apk/app-release.apk
+</code></pre></div>
+<p>Without <code>app/android/key.properties</code> the release build is signed with the debug
+key (<code>buildTypes.release</code> in <code>app/android/app/build.gradle.kts</code>), which is
+enough to install on your own phone. To sign with your own keystore, create
+<code>app/android/key.properties</code> (gitignored) with the four keys the build reads:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="na">storeFile</span><span class="o">=</span><span class="s">upload.jks</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="na">storePassword</span><span class="o">=</span><span class="s">…</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="na">keyAlias</span><span class="o">=</span><span class="s">upload</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="na">keyPassword</span><span class="o">=</span><span class="s">…</span>
+</code></pre></div>
+<p><code>storeFile</code> is resolved relative to <code>app/android/</code>.</p>
+<h3 id="ios">iOS<a class="headerlink" href="#ios" title="Permanent link">&para;</a></h3>
+<p>Open <code>app/ios/Runner.xcworkspace</code> in Xcode once, select the Runner target,
+Signing &amp; Capabilities, and choose your team; signing is set to Automatic in
+the project. <code>app/ios/Runner/Runner.entitlements</code> already carries
+<code>aps-environment</code>, which needs the Push Notifications capability on the App
+ID registered above. Then either run straight onto a connected phone:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd</span><span class="w"> </span>app
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>flutter<span class="w"> </span>pub<span class="w"> </span>get
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>flutter<span class="w"> </span>run<span class="w"> </span>--release<span class="w"> </span>--dart-define-from-file<span class="o">=</span>dart_defines/store.json
+</code></pre></div>
+<p>or build an archive to distribute through TestFlight or ad hoc:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>flutter<span class="w"> </span>build<span class="w"> </span>ipa<span class="w"> </span>--release<span class="w"> </span>--dart-define-from-file<span class="o">=</span>dart_defines/store.json
+</code></pre></div>
+<h2 id="relay-with-the-same-project">Relay with the same project<a class="headerlink" href="#relay-with-the-same-project" title="Permanent link">&para;</a></h2>
+<p>Deploy the relay as described in <a href="../relay/#deploy">Deploy</a>, with the service
+account JSON from step 5 above as <code>FCM_SERVICE_ACCOUNT</code>. It must come from the
+Firebase project in <code>store.json</code>; a service account from any other project
+cannot send to this build's tokens.</p>
+<p>Mint a relay credential. <code>normalizeKey</code> in <code>relay/src/entitlement.ts</code> accepts
+<code>PH-</code> followed by four groups of four characters from <code>A-Z0-9</code>; the relay
+compares the SHA-256 hex of the credential against <code>ENTITLEMENT_STATIC_KEYS</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">KEY</span><span class="o">=</span><span class="s2">"PH-</span><span class="k">$(</span><span class="nv">LC_ALL</span><span class="o">=</span>C<span class="w"> </span>tr<span class="w"> </span>-dc<span class="w"> </span><span class="s1">'A-Z0-9'</span><span class="w"> </span>&lt;<span class="w"> </span>/dev/urandom<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-c<span class="w"> </span><span class="m">16</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span><span class="s1">'s/.\{4\}/&amp;-/g;s/-$//'</span><span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$KEY</span><span class="s2">"</span><span class="w">                                   </span><span class="c1"># goes into the app's relay URL</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">'%s'</span><span class="w"> </span><span class="s2">"</span><span class="nv">$KEY</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sha256sum<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">' '</span><span class="w"> </span>-f1<span class="w">   </span><span class="c1"># goes into ENTITLEMENT_STATIC_KEYS</span>
+</code></pre></div>
+<p>In <code>relay/wrangler.jsonc</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Set to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>routes</code></td>
+<td>remove the entry; it is the project's custom domain. The Worker is then served at <code>&lt;name&gt;.&lt;account&gt;.workers.dev</code></td>
+</tr>
+<tr>
+<td><code>kv_namespaces[0].id</code></td>
+<td>the id printed by <code>npx wrangler kv namespace create DENY</code></td>
+</tr>
+<tr>
+<td><code>vars.FCM_PROJECT_ID</code></td>
+<td>your Firebase project id, or leave <code>""</code> to read <code>project_id</code> from the service account</td>
+</tr>
+<tr>
+<td><code>vars.ANDROID_PACKAGE</code></td>
+<td>your Android <code>applicationId</code> (only used when <code>ATTEST_MODE</code> is <code>android</code> or <code>all</code>)</td>
+</tr>
+<tr>
+<td><code>vars.ENTITLEMENT_URL</code></td>
+<td><code>""</code> unless you run your own entitlement service. The committed value points at the project's service; with that value and an <code>ENTITLEMENT_SECRET</code> set, the relay asks that service and never consults <code>ENTITLEMENT_STATIC_KEYS</code></td>
+</tr>
+<tr>
+<td><code>vars.ENTITLEMENT_STATIC_KEYS</code></td>
+<td>the SHA-256 hex from above; several credentials are separated by commas</td>
+</tr>
+</tbody>
+</table>
+<p>With <code>ENTITLEMENT_STATIC_KEYS</code> you do not need <code>ENTITLEMENT_SECRET</code>.</p>
+<h2 id="connect">Connect<a class="headerlink" href="#connect" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Phone: <strong>Settings → Push relay</strong>, paste <code>https://&lt;KEY&gt;@&lt;your-worker&gt;.workers.dev</code>.</li>
+<li>Each machine: set <code>[push] relay_url</code> to the base URL without the credential and restart the daemon.</li>
+</ol>
+<p>Both steps are described in <a href="../../guide/push/#use-the-hosted-relay">Push notifications</a>.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<dl>
+<dt><strong>"Relay: not active" and the relay log says <code>no entitlement source configured</code></strong></dt>
+<dd>Neither <code>ENTITLEMENT_URL</code> + <code>ENTITLEMENT_SECRET</code> nor
+<code>ENTITLEMENT_STATIC_KEYS</code> is set (<code>checkEntitlement</code> in
+<code>relay/src/entitlement.ts</code>). Set <code>ENTITLEMENT_STATIC_KEYS</code> and redeploy.</dd>
+<dt><strong>"Relay: not active" and the relay log says <code>unknown credential</code></strong></dt>
+<dd>The credential's hash is not in <code>ENTITLEMENT_STATIC_KEYS</code>, or
+<code>ENTITLEMENT_URL</code> is still the committed value so the relay asked the
+project's entitlement service instead. Hash the credential again with
+<code>printf '%s'</code> (no trailing newline) and check <code>ENTITLEMENT_URL</code> is <code>""</code>.</dd>
+<dt><strong>The relay is connected but the daemon log shows <code>push failed</code> with <code>(410)</code> or <code>relay returned 502</code></strong></dt>
+<dd>The relay could not deliver to the token. It answers 410 <code>push token gone</code>
+when FCM returns 400 or 404 and 502 <code>fcm &lt;status&gt;</code> for any other FCM
+error (<code>handlePush</code> in <code>relay/src/index.ts</code>); on 410 the daemon drops
+the grant for that device. The usual cause is a project mismatch: the
+app was built with one Firebase project's <code>store.json</code> and the relay's
+<code>FCM_SERVICE_ACCOUNT</code> belongs to another. A store build with your own
+relay fails the same way. Rebuild the app from the project the service
+account comes from.</dd>
+<dt><strong>iOS never gets a push token</strong></dt>
+<dd>See <a href="../../reference/troubleshooting/#notifications">"Apple has not issued this phone a push token
+yet"</a>. For a self-built
+app also confirm the APNs key is uploaded in Cloud Messaging and the App
+ID has the Push Notifications capability.</dd>
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ZerkerEOD/porthole" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "toc.follow", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

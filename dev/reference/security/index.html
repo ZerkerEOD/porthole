@@ -1,0 +1,1460 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A self-hosted phone remote for Claude Code and Codex sessions on your own machine">
+      
+      
+        <meta name="author" content="ZerkerEOD">
+      
+      
+        <link rel="canonical" href="https://zerkersec.io/porthole/docs/dev/reference/security/">
+      
+      
+        <link rel="prev" href="../troubleshooting/">
+      
+      
+        <link rel="next" href="../ios-background/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
+    
+    
+      
+        <title>Security - Porthole</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#security" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Porthole" class="md-header__button md-logo" aria-label="Porthole" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Porthole
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Security
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/ZerkerEOD/porthole" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZerkerEOD/porthole
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Porthole" class="md-nav__button md-logo" aria-label="Porthole" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Porthole
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/ZerkerEOD/porthole" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    ZerkerEOD/porthole
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install the daemon
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows (WSL2)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/pairing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pair a phone
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/push/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Self-hosting
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Self-hosting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../self-host/app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build the app yourself
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../self-host/relay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Push relay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#components-and-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Components and boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phone-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phone authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-exposure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network exposure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-phone-can-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a phone can do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#push-relay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Push relay
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#threat-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Threat summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ios-background/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    iOS background behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../privacy-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../terms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Terms of service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#components-and-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Components and boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phone-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phone authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-exposure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network exposure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-phone-can-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a phone can do
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#push-relay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Push relay
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#threat-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Threat summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h1>
+<p>This page describes how Porthole secures the paths between the phone, the
+daemon, the agent CLIs and the optional push relay. The pairing steps are in
+<a href="../../getting-started/pairing/">Pair a phone</a> and the push setup is in
+<a href="../../guide/push/">Push notifications</a>.</p>
+<h2 id="components-and-boundaries">Components and boundaries<a class="headerlink" href="#components-and-boundaries" title="Permanent link">&para;</a></h2>
+<p>The phone app talks to the daemon over a WebSocket on a LAN or VPN address,
+with TLS 1.3 and a self-signed certificate the app pins at pairing. The daemon
+runs as the user who owns the agent sessions and refuses to start as root. It
+reads agent transcripts from disk, receives hook events over a local unix
+socket, drives terminals through tmux, and, when a relay URL is configured,
+posts encrypted notices to the relay, which forwards them through FCM. The
+phone and the hook process cross a boundary (the pinned certificate with the
+device token, and the socket file permission); the daemon and the user's tmux
+panes and transcript files do not, since the daemon has the same access as the
+user.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>[Phone app] ──wss, TLS 1.3, pinned certificate, bearer device token──┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>   (LAN or VPN address only)                                          ▼
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                                                      [porthole daemon, runs as the user]
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>                                                        │        │           │
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>   transcript JSONL (read only) ◄───────────────────────┘        │           └──► [tmux] send-keys, paste-buffer, capture-pane
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>   &lt;profile&gt;/projects, &lt;codex home&gt;/sessions                     │
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                                                                 │
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>   [agent CLI hook process] ──unix socket, mode 0600────────────►┘
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>                                                                 │
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>   [relay (Cloudflare Worker)] ◄──https {grant, ciphertext, collapse}──┘  (only when push.relay_url is set)
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>          │
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>          └──► [FCM] ──► [Apple or Google push service] ──► [Phone]
+</code></pre></div>
+<h2 id="phone-authentication">Phone authentication<a class="headerlink" href="#phone-authentication" title="Permanent link">&para;</a></h2>
+<p><code>porthole pair</code> asks the daemon over the local socket for a pairing code and
+prints a QR code carrying the daemon name, the advertised addresses, the port,
+the certificate fingerprint and the code. The code is 8 characters of base32
+from 5 random bytes, valid for 120 seconds, and deleted on first use. The
+daemon keeps only a SHA-256 hash of it in memory and compares hashes in
+constant time. A source address that fails five times in one minute is refused
+until the window passes, and <code>POST /v1/pair</code> as a whole admits one request
+every two seconds with a burst of ten.</p>
+<p>A successful pairing returns a device id and a 32-byte random token, base64url
+encoded, sent to the app once. The daemon stores the token's SHA-256 in
+<code>devices.json</code> (mode 0600, written through a temporary file and a rename)
+under the state directory, <code>$XDG_STATE_HOME/porthole</code> or
+<code>~/.local/state/porthole</code>, mode 0700. The app stores the token with the hosts,
+port and fingerprint in the platform keystore. Every request carries
+<code>Authorization: Bearer &lt;token&gt;</code>; a WebSocket client may instead pass it as the
+subprotocol <code>porthole.token.&lt;token&gt;</code>. Tokens do not expire. <code>porthole devices</code>
+lists paired devices and <code>porthole devices revoke &lt;id&gt;</code> removes one; the daemon
+closes that device's open connections within one second, and the app treats
+the next 401 as a revocation and asks the user to pair again.</p>
+<p>On first run the daemon generates an ECDSA P-256 self-signed certificate valid
+for ten years and writes <code>tls.crt</code> and <code>tls.key</code> to the state directory with
+mode 0600. The fingerprint in the QR code is the base64url SHA-256 of the
+certificate's DER encoding. The app builds its TLS context with no trusted
+roots and accepts a certificate only when its fingerprint matches the stored
+one; a different certificate fails the handshake and the app reports
+"Certificate changed. Pair again." The daemon accepts TLS 1.3 only. Deleting
+<code>tls.crt</code> and <code>tls.key</code> and restarting the daemon rotates the certificate, and
+every phone must then re-pair.</p>
+<h2 id="network-exposure">Network exposure<a class="headerlink" href="#network-exposure" title="Permanent link">&para;</a></h2>
+<p>With the default <code>listen = ["auto"]</code> the daemon binds every loopback,
+link-local IPv4, RFC 1918, CGNAT (100.64.0.0/10) and IPv6 ULA address on an
+interface that is up, plus every address on an interface whose name starts
+with <code>tailscale</code>, <code>wg</code>, <code>utun</code>, <code>tun</code>, <code>nebula</code> or <code>zt</code>; interfaces named
+<code>docker</code>, <code>br-</code>, <code>veth</code>, <code>virbr</code>, <code>lxc</code>, <code>cni</code>, <code>flannel</code> or <code>podman</code> are
+skipped. 127.0.0.1 is always bound, the list is re-evaluated every ten seconds
+so a VPN interface that appears later is picked up, and the default port is
+7433. An explicit listen address outside those ranges is refused at startup
+unless <code>porthole serve</code> is given <code>--allow-public-bind-i-understand</code>.
+Independently of binding, every accepted request is checked against the same
+address classes and a public source address receives 403 unless that flag is
+set. Without a valid token a caller reaches only <code>POST /v1/pair</code>; every other
+route returns 401 with an empty body.</p>
+<p>The control socket <code>porthole.sock</code> lives in <code>$XDG_RUNTIME_DIR/porthole</code> (or
+<code>run/</code> under the state directory when that variable is unset), with the
+directory at 0700 and the socket at 0600. It carries the CLI commands (pair,
+devices, revoke, status, config reload) and the hook events, with no
+authentication beyond the file permission: any process running as the same
+user can use it, which equals that user's shell access.</p>
+<h2 id="what-a-phone-can-do">What a phone can do<a class="headerlink" href="#what-a-phone-can-do" title="Permanent link">&para;</a></h2>
+<p>Every paired phone holds the same rights; there are no per-device scopes. Over
+the WebSocket a phone can:</p>
+<ul>
+<li>list sessions, including title and working directory, and subscribe to the
+  transcript events and the tmux screen of any session the daemon discovers;</li>
+<li>page through transcript history (the daemon only reads transcript files);</li>
+<li>send text to a session that has a tmux pane. The daemon passes the text to
+  <code>send-keys -l</code> (or <code>set-buffer</code> and <code>paste-buffer</code> for multi-line text) as a
+  separate argument, never through a shell, and takes the pane id from its own
+  session list rather than from the client;</li>
+<li>press named keys from a fixed allowlist (Enter, Escape, arrows, C-c and the
+  like) or single printable characters, up to 32 per message;</li>
+<li>answer a pending permission prompt with allow or deny. The daemon holds the
+  hook open only while a phone subscribes to that session, gives each prompt a
+  random id, and accepts an answer only for an id that is still pending. After
+  <code>hooks.permission_timeout_s</code> (default 60) the hook returns no decision and
+  the terminal prompt appears as usual;</li>
+<li>start a session. The daemon builds the argv itself from the configured
+  binary, the <code>--resume</code>, <code>--permission-mode</code> and <code>--model</code> values (at most 64
+  characters each, letters, digits and <code>-_.:[]</code> only), and the prompt after
+  <code>--</code>. The directory passes <code>insideWorkspace</code> in
+  <code>daemon/internal/core/registry.go</code>: after symlink resolution it is inside a
+  configured workspace or an added repository, or it is exactly a directory an
+  agent session has already run in;</li>
+<li>register or clear its push grant.</li>
+</ul>
+<p>Per connection the daemon reads at most 64 KiB per message, allows 60 messages
+per second with a burst of 120, admits four connections per device, and
+coalesces screen snapshots per session so a fast terminal cannot queue
+unbounded output.</p>
+<p>A stolen phone or token therefore reads code and conversations, types into
+running agents, answers their permission prompts and starts new agents in the
+allowed directories, from any address that reaches the daemon. There is no
+second factor; the mitigation is <code>porthole devices revoke</code>, which takes effect
+within a second, and keeping the daemon reachable only over the VPN.</p>
+<p>Hook events arrive through <code>porthole hook</code>, which <code>porthole install-hooks</code>
+registers for the session, prompt, stop, notification and permission events,
+and through the Codex <code>notify</code> program <code>porthole codex-notify</code>, which only
+reports completed turns. The daemon acts on a hook only when its
+<code>transcript_path</code>, after symlink resolution, lies under the <code>projects</code>
+directory of a watched profile; otherwise it logs a warning and returns no
+decision.</p>
+<h2 id="push-relay">Push relay<a class="headerlink" href="#push-relay" title="Permanent link">&para;</a></h2>
+<p>Push is off until <code>push.relay_url</code> names an https URL. At pairing the app
+generates an X25519 key pair and sends the public key; the daemon generates its
+own pair, derives a 32-byte key with HKDF-SHA256 over the shared secret and the
+info string <code>porthole-push-v1</code>, stores that key in <code>devices.json</code>, returns its
+public key and discards its private key. The app derives the same key and
+stores it in the keystore.</p>
+<p>A notice is a JSON object with the kind (permission, input or done), the
+session key, the title clipped to 80 characters, the daemon name and a
+timestamp. The daemon seals it with XChaCha20-Poly1305 under the pairing key
+with a random 24-byte nonce; the ciphertext is capped at 480 bytes. The relay,
+FCM and the platforms carry only that ciphertext, and the APNs alert text is
+the fixed "A session needs your attention".</p>
+<p>The app obtains a grant with <code>POST /v1/grant</code>, sending a random device id it
+generates, the platform, the FCM registration token, and the credential from
+the relay URL's userinfo as a bearer token. The relay limits grant requests to
+5 per minute per client IP, rejects device ids on its deny list, optionally
+requires platform attestation (<code>ATTEST_MODE</code>; <code>android</code> verifies Play
+Integrity, iOS verification is not implemented, so <code>all</code> refuses iOS), and
+asks the entitlement service (an HTTPS endpoint sharing <code>ENTITLEMENT_SECRET</code>)
+or, on a self-hosted relay, a static list of credential SHA-256 hashes whether
+the credential is active. The grant is the JSON payload <code>{v, d, t, p, iat,
+exp}</code> base64url encoded, a dot, and an Ed25519 signature over that encoding
+made with a key held as a Worker secret; <code>GET /v1/pubkey</code> returns the
+verification key. It expires at the end of the entitlement period or after 30
+days, whichever is sooner. The app registers the grant with each daemon over
+the WebSocket and renews it when fewer than three days remain.</p>
+<p>The daemon posts <code>{grant, ct, collapse}</code> to <code>POST /v1/push</code> for each device
+that holds a live grant and is not connected, at most once per device, session
+and kind every 45 seconds; <code>collapse</code> is the first 32 hex characters of the
+SHA-256 of the session key. The relay verifies the signature and expiry, checks
+the deny list, enforces 10 pushes per minute per device id and 300 per day (a
+KV counter that expires after two days), and forwards to FCM. A 400 or 404 from
+FCM becomes a 410, on which the daemon drops the grant.</p>
+<p>At grant time the relay sees the relay credential, device id, platform, push
+token and client IP; per push it sees the grant contents, the ciphertext, the
+collapse digest and the time. It keeps no subscriber list; its KV namespace
+holds the deny list (device ids the operator writes) and the daily counters.
+Rotating the signing key invalidates every grant at once. A self-hosted relay
+runs the same code with the static credential list in place of the entitlement
+service; the encryption, grant format and limits are unchanged.</p>
+<h2 id="threat-summary">Threat summary<a class="headerlink" href="#threat-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Threat</th>
+<th>Control</th>
+<th>Residual risk</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Public internet exposure</td>
+<td>Bind and source-address policy admit only loopback, private, CGNAT, ULA and VPN addresses; public addresses need <code>--allow-public-bind-i-understand</code></td>
+<td>A host that sets the flag, or a VPN that admits strangers, exposes the daemon to anyone who can reach it</td>
+</tr>
+<tr>
+<td>Stolen phone or device token</td>
+<td>Token hashed at rest, kept in the phone keystore, revocable with <code>porthole devices revoke</code>, connections closed within a second</td>
+<td>Until revocation the holder has every right a paired phone has; no second factor</td>
+</tr>
+<tr>
+<td>Malicious prompt in a transcript driving the agent</td>
+<td>Phone input is literal keystrokes; permission prompts reach the phone with tool name and input for a human decision</td>
+<td>A prompt approved from the phone runs with the user's rights, as it would in the terminal</td>
+</tr>
+<tr>
+<td>Relay compromise</td>
+<td>Notices are encrypted end to end with a key the relay never holds; grants bind one device id and push token</td>
+<td>The relay operator learns push tokens, device ids, timing and the per-session collapse digest, and can suppress or delay pushes</td>
+</tr>
+<tr>
+<td>Hook tampering</td>
+<td>Hook payloads are accepted only for transcripts under a watched profile; answers match a pending prompt id; a hook timeout yields no decision</td>
+<td>Any process of the same user can connect to the socket and inject events, which equals that user's shell access</td>
+</tr>
+<tr>
+<td>Local user on the machine</td>
+<td>State directory 0700, <code>devices.json</code>, <code>tls.key</code> and the socket 0600; the daemon refuses to run as root</td>
+<td>The same user, or root, reads tokens, the push key and every transcript</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/ZerkerEOD/porthole" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "toc.follow", "search.suggest", "search.highlight", "content.code.copy"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
