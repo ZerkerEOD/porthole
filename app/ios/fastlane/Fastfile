@@ -151,9 +151,10 @@ platform :ios do
   # ids (scripts/store-defines.sh, or the Jenkins credential); the demo does
   # not need them, so a missing file only means a build without push.
   def demo_defines(slow: false)
-    # Screenshots skip the splash; the recording keeps it (the flow waits for it).
-    defines = ["--dart-define=PH_DEMO=true"]
-    defines << (slow ? "--dart-define=PH_DEMO_SLOW=true" : "--dart-define=PH_NO_SPLASH=true")
+    # Screenshots seed the demo machine and skip the splash. The recording keeps
+    # the splash and starts from an empty home, so "Try the demo" is on film
+    # instead of the flow forgetting a pre-seeded machine.
+    defines = slow ? ["--dart-define=PH_DEMO_SLOW=true"] : ["--dart-define=PH_DEMO=true", "--dart-define=PH_NO_SPLASH=true"]
     if File.exist?(File.join(app_dir, "dart_defines/store.json"))
       defines << "--dart-define-from-file=dart_defines/store.json"
     else

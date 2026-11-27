@@ -86,6 +86,8 @@ void main() {
     // A previous run leaves the demo machine in the keystore: forget it so
     // the flow starts from the empty home screen every time.
     await waitFor(tester, find.byType(Scaffold), reason: 'home');
+    // Let the keystore read finish so an empty home is not mistaken for a populated one.
+    await waitGone(tester, find.byType(CircularProgressIndicator), ticks: 20, reason: 'home loading');
     if (find.text('Try the demo').evaluate().isEmpty) {
       await tester.tap(find.byTooltip('Machines'));
       await pump(tester, 3);
