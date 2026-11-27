@@ -197,9 +197,11 @@ func TestReloadRunningRunResumes(t *testing.T) {
 		}
 		return true
 	})
-	if fr, err := readRunFile(r.runFilePath(id)); err != nil || fr.Run.State != RunDone || fr.Run.PaneID != "" {
-		t.Fatalf("persisted %+v %v", fr, err)
-	}
+	// The cleared pane id is persisted just after the window goes; allow for that.
+	waitFor(t, "persisted", func() bool {
+		fr, err := readRunFile(r.runFilePath(id))
+		return err == nil && fr.Run.State == RunDone && fr.Run.PaneID == ""
+	})
 }
 
 // Runs that ended more than a day ago are dropped; a running run whose
