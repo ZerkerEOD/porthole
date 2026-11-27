@@ -19,6 +19,7 @@ import 'package:porthole/demo/demo_client.dart';
 import 'package:porthole/demo/fixture.dart' as fx;
 import 'package:porthole/main.dart' as app;
 import 'package:porthole/notifications.dart';
+import 'package:porthole/screens/splash.dart';
 import 'package:porthole/store.dart';
 import 'package:porthole/widgets/event_tile.dart';
 import 'package:provider/provider.dart';
@@ -79,6 +80,8 @@ void main() {
 
     await app.main();
     await pump(tester, 4);
+    // The recording keeps the splash; let it finish rather than tapping through it.
+    await waitGone(tester, find.byType(SplashScreen), ticks: 40, reason: 'splash');
 
     // A previous run leaves the demo machine in the keystore: forget it so
     // the flow starts from the empty home screen every time.

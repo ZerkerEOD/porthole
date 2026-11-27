@@ -151,8 +151,9 @@ platform :ios do
   # ids (scripts/store-defines.sh, or the Jenkins credential); the demo does
   # not need them, so a missing file only means a build without push.
   def demo_defines(slow: false)
-    defines = ["--dart-define=PH_DEMO=true", "--dart-define=PH_NO_SPLASH=true"]
-    defines << "--dart-define=PH_DEMO_SLOW=true" if slow
+    # Screenshots skip the splash; the recording keeps it (the flow waits for it).
+    defines = ["--dart-define=PH_DEMO=true"]
+    defines << (slow ? "--dart-define=PH_DEMO_SLOW=true" : "--dart-define=PH_NO_SPLASH=true")
     if File.exist?(File.join(app_dir, "dart_defines/store.json"))
       defines << "--dart-define-from-file=dart_defines/store.json"
     else
@@ -207,6 +208,10 @@ platform :ios do
       phone = ASSET_DEVICES.first
       udid = simulator_udid(phone)
       UI.header("Recording: #{phone} (#{udid})")
+      # Erase first so the recording opens on the empty home screen instead of
+      # forgetting the demo machine the screenshot run left behind.
+      shutdown_simulator(udid)
+      sh("xcrun simctl erase #{udid}")
       boot_simulator(udid)
       booted << udid
       sh("cd #{app_dir.shellescape} && flutter build ios --simulator --debug -t integration_test/demo_flow_test.dart #{demo_defines(slow: true)}")
