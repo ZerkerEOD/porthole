@@ -49,6 +49,19 @@ porthole install
 `porthole install --no-service` skips step 2 (run `porthole serve` yourself, or use the unit
 files under `daemon/packaging/`). `--no-hooks` skips step 4.
 
+## Upgrading
+
+Run the one-line installer again. It downloads the newest release, replaces
+`~/.local/bin/porthole`, restarts the service and refreshes the hooks. Sessions
+keep running through the restart, with one exception: the service installed by
+version 0.1.0 stopped the sessions it had started when it was restarted, so the
+upgrade from 0.1.0 ends sessions you started from the app (not ones you started in
+a terminal). Finish or detach those first. Every later upgrade leaves them alone.
+
+The app and the daemon move together. App version 1.0 needs daemon 0.2.0 or newer;
+`porthole status` prints the version you are running, and the
+[changelog](../reference/changelog.md) lists what each release added.
+
 ## Check it
 
 ```sh
