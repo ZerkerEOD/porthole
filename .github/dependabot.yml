@@ -3,12 +3,16 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups: { actions: { patterns: ["*"] } }
   - package-ecosystem: gomod
     directory: /daemon
     schedule: { interval: weekly }
+    groups: { go: { patterns: ["*"] } }
   - package-ecosystem: npm
     directory: /relay
     schedule: { interval: weekly }
+    groups: { npm: { patterns: ["*"] } }
   - package-ecosystem: pub
     directory: /app
     schedule: { interval: weekly }
+    groups: { pub: { patterns: ["*"] } }
