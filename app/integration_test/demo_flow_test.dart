@@ -87,7 +87,12 @@ void main() {
     // the flow starts from the empty home screen every time.
     await waitFor(tester, find.byType(Scaffold), reason: 'home');
     // Let the keystore read finish so an empty home is not mistaken for a populated one.
-    await waitGone(tester, find.byType(CircularProgressIndicator), ticks: 20, reason: 'home loading');
+    // (Busy session rows spin too, so test the store rather than looking for a spinner.)
+    final appStore = Provider.of<AppStore>(app.navigatorKey.currentContext!, listen: false);
+    for (var i = 0; i < 20 && !appStore.loaded; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    await tester.pump();
     if (find.text('Try the demo').evaluate().isEmpty) {
       await tester.tap(find.byTooltip('Machines'));
       await pump(tester, 3);
