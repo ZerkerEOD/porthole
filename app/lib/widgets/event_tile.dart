@@ -111,7 +111,7 @@ class EventTile extends StatelessWidget {
   }
 
   /// An image from assistant markdown: a local path is fetched from the
-  /// session's machine, a web address loaded directly, anything else shown
+  /// session's machine, an https address loaded directly, anything else shown
   /// as text.
   Widget _markdownImage(String url) {
     final c = client;
@@ -119,7 +119,7 @@ class EventTile extends StatelessWidget {
     if (isImagePath(url) && c != null && k != null) {
       return ConstrainedBox(constraints: const BoxConstraints(maxHeight: thumbMaxHeight, maxWidth: 280), child: RemoteImage(client: c, sessionKey: k, path: url));
     }
-    if (url.startsWith('https://') || url.startsWith('http://')) {
+    if (url.startsWith('https://')) {
       return ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: thumbMaxHeight, maxWidth: 280),
         child: ClipRRect(

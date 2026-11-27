@@ -188,7 +188,7 @@ func readTail(path string, max int64) ([]byte, error) {
 	if _, err := f.Seek(off, io.SeekStart); err != nil {
 		return nil, err
 	}
-	b, err := io.ReadAll(f)
+	b, err := io.ReadAll(io.LimitReader(f, max))
 	if err != nil {
 		return nil, err
 	}

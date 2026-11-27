@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -296,7 +296,7 @@ func planOptions(opts []string) bool {
 // hash identifies one drawing of the dialog, so a new prompt with the same
 // options still reads as new.
 func (d permDialog) hash() string {
-	h := sha1.New()
+	h := sha256.New()
 	for _, s := range []string{d.Tool, d.Description, d.Detail, d.Prompt} {
 		h.Write([]byte(s))
 		h.Write([]byte{0})
