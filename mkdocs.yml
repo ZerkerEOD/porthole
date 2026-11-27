@@ -70,7 +70,8 @@ nav:
   - Terms of service: terms.md
 
 # Store runbooks are maintainer material: built so links resolve, not listed.
-not_in_nav: |
+# Maintainer notes for the store pipeline live in the repository only; they are not user docs.
+exclude_docs: |
   store/
 
 extra:

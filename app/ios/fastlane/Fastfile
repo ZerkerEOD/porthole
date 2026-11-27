@@ -261,7 +261,9 @@ platform :ios do
       distribute_external: true,
       groups: [ENV["TESTFLIGHT_GROUP"] || "Porthole beta"],
       changelog: options[:changelog] || "Porthole beta build.",
-      beta_app_review_info: { contact_email: "privacy@zerkersec.io", contact_first_name: "Aaron", contact_last_name: "Sullivan", contact_phone: ENV["BETA_REVIEW_PHONE"] || "", notes: "Tap Try the demo on the first screen; no account needed." },
+      # The beta review contact (name, phone, email, notes) is set once in App Store
+      # Connect and left alone here, so a run without BETA_REVIEW_PHONE cannot blank it.
+      **(ENV["BETA_REVIEW_PHONE"] ? { beta_app_review_info: { contact_email: "privacy@zerkersec.io", contact_first_name: "Aaron", contact_last_name: "Sullivan", contact_phone: ENV["BETA_REVIEW_PHONE"], notes: "Tap Try the demo on the first screen; no account needed." } } : {}),
       skip_waiting_for_build_processing: false
     )
   end

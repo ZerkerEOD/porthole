@@ -6,8 +6,8 @@ import 'package:porthole/client.dart';
 import 'package:porthole/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const vpn = '100.100.24.89';
-const lan = '10.133.70.251';
+const vpn = '100.64.0.9';
+const lan = '10.0.0.5';
 
 DaemonInfo info({List<String> hosts = const [vpn, lan], String? lastHost}) =>
     DaemonInfo(id: 'm', name: 'desk', hosts: List.of(hosts), port: 7433, fingerprint: 'fp', token: 't', deviceId: 'd', lastHost: lastHost);
