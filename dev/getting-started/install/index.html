@@ -407,6 +407,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#upgrading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upgrading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#check-it" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -860,6 +871,8 @@
       
         
       
+        
+      
     
     
     
@@ -991,6 +1004,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1101,6 +1142,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#upgrading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upgrading
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#check-it" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1197,6 +1249,16 @@ for your OS and architecture, verifies the checksum, and runs <code>porthole ins
 </ol>
 <p><code>porthole install --no-service</code> skips step 2 (run <code>porthole serve</code> yourself, or use the unit
 files under <code>daemon/packaging/</code>). <code>--no-hooks</code> skips step 4.</p>
+<h2 id="upgrading">Upgrading<a class="headerlink" href="#upgrading" title="Permanent link">&para;</a></h2>
+<p>Run the one-line installer again. It downloads the newest release, replaces
+<code>~/.local/bin/porthole</code>, restarts the service and refreshes the hooks. Sessions
+keep running through the restart, with one exception: the service installed by
+version 0.1.0 stopped the sessions it had started when it was restarted, so the
+upgrade from 0.1.0 ends sessions you started from the app (not ones you started in
+a terminal). Finish or detach those first. Every later upgrade leaves them alone.</p>
+<p>The app and the daemon move together. App version 1.0 needs daemon 0.2.0 or newer;
+<code>porthole status</code> prints the version you are running, and the
+<a href="../../reference/changelog/">changelog</a> lists what each release added.</p>
 <h2 id="check-it">Check it<a class="headerlink" href="#check-it" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>porthole<span class="w"> </span>status
 </code></pre></div>
