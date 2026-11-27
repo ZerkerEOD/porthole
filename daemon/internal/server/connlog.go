@@ -50,6 +50,7 @@ func (c *connLog) add(a ConnAttempt) {
 	if a.At.IsZero() {
 		a.At = time.Now()
 	}
+	a.Name = cleanName(a.Name, maxDeviceName)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.buf[c.next] = a

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // Device is a paired phone.
@@ -285,12 +286,9 @@ func (s *Store) Pair(source, code, deviceName, pushSecretHex string) (Device, st
 	token := base64.RawURLEncoding.EncodeToString(tok[:])
 	var idb [8]byte
 	_, _ = rand.Read(idb[:])
-	name := strings.TrimSpace(deviceName)
+	name := cleanName(deviceName, maxDeviceName)
 	if name == "" {
 		name = "phone"
-	}
-	if len(name) > 64 {
-		name = name[:64]
 	}
 	d := Device{ID: hex.EncodeToString(idb[:]), Name: name, TokenHash: hashToken(token), CreatedAt: now, PushSecret: pushSecretHex}
 	s.devs = append(s.devs, d)
@@ -395,4 +393,26 @@ func (s *Store) IsDevice(id string) bool {
 		}
 	}
 	return false
+}
+
+// maxDeviceName is the longest device name kept, in runes.
+const maxDeviceName = 64
+
+// cleanName drops control and other non-printing runes from a name supplied
+// over the network (it is echoed to the owner's terminal) and clips it to
+// max runes.
+func cleanName(s string, max int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			continue
+		}
+		if n == max {
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return strings.TrimSpace(b.String())
 }

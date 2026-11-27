@@ -2,8 +2,10 @@ package server
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestConnLogRing(t *testing.T) {
@@ -53,5 +55,18 @@ func TestPathKind(t *testing.T) {
 	}
 	if remoteHost("[::1]:5000") != "::1" || remoteHost("1.2.3.4:5") != "1.2.3.4" || remoteHost("1.2.3.4") != "1.2.3.4" {
 		t.Error("remoteHost")
+	}
+}
+
+func TestConnLogCleansNames(t *testing.T) {
+	c := newConnLog(4)
+	c.add(ConnAttempt{From: "10.0.0.9", Path: PathPair, Result: ResultUnauthorized, Name: "\x1b]0;evil\x07ph\tone\x1b[2J"})
+	got := c.recent()[0].Name
+	if got != "]0;evilphone[2J" { // ESC, BEL and TAB gone, so no sequence survives
+		t.Fatalf("name not cleaned: %q", got)
+	}
+	long := strings.Repeat("é", 100)
+	if n := cleanName(long, maxDeviceName); len([]rune(n)) != maxDeviceName || !utf8.ValidString(n) {
+		t.Fatalf("clip: %d runes valid=%v", len([]rune(n)), utf8.ValidString(n))
 	}
 }

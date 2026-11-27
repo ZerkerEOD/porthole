@@ -15,7 +15,27 @@ import (
 // ClaudeEvents are the hook events Porthole subscribes to.
 var ClaudeEvents = []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "Notification", "PermissionRequest", "PermissionDenied", "PostModelSwitch"}
 
-const marker = "porthole hook"
+// isOurs recognises a hook command this package wrote: the porthole binary,
+// quoted or not, followed by its hook subcommand.
+func isOurs(cmd string) bool {
+	return strings.HasSuffix(cmd, " hook") && strings.Contains(cmd, "porthole")
+}
+
+// shellQuote single-quotes s for a POSIX shell when it holds anything beyond
+// plain path characters; a typical install path is left as it is.
+func shellQuote(s string) string {
+	plain := true
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("/._-~", r)) {
+			plain = false
+			break
+		}
+	}
+	if plain && s != "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // InstallClaude merges Porthole hook entries into <profile>/settings.json,
 // keeping every existing hook. permissionTimeout is seconds the
@@ -38,7 +58,7 @@ func InstallClaude(profileDir, binary string, permissionTimeout int) (changed bo
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	cmd := binary + " hook"
+	cmd := shellQuote(binary) + " hook"
 	for _, ev := range ClaudeEvents {
 		timeout := 30
 		if ev == "PermissionRequest" {
@@ -58,7 +78,7 @@ func InstallClaude(profileDir, binary string, permissionTimeout int) (changed bo
 			hs, _ := m["hooks"].([]any)
 			for _, h := range hs {
 				hm, _ := h.(map[string]any)
-				if hm != nil && strings.HasSuffix(fmt.Sprint(hm["command"]), marker) {
+				if hm != nil && isOurs(fmt.Sprint(hm["command"])) {
 					found = true
 					if fmt.Sprint(hm["command"]) != cmd || fmt.Sprint(hm["timeout"]) != fmt.Sprint(timeout) {
 						list[i] = entry
@@ -114,7 +134,7 @@ func UninstallClaude(profileDir string) (changed bool, err error) {
 			ours := false
 			for _, h := range hs {
 				hm, _ := h.(map[string]any)
-				if hm != nil && strings.HasSuffix(fmt.Sprint(hm["command"]), marker) {
+				if hm != nil && isOurs(fmt.Sprint(hm["command"])) {
 					ours = true
 				}
 			}

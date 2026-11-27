@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	qrcode "github.com/skip2/go-qrcode"
 	"github.com/spf13/cobra"
@@ -204,7 +205,7 @@ func devicesCmd() *cobra.Command {
 			if !d.LastSeen.IsZero() {
 				ls = d.LastSeen.Local().Format("2006-01-02 15:04")
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", d.ID, d.Name, d.CreatedAt.Local().Format("2006-01-02"), ls)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", d.ID, trunc(d.Name, 64), d.CreatedAt.Local().Format("2006-01-02"), ls)
 		}
 		return tw.Flush()
 	}
@@ -243,7 +244,7 @@ func sessionsCmd() *cobra.Command {
 				if s.Controllable {
 					ctrl = s.TmuxSession
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.Provider, s.Status, ctrl, s.Repo, trunc(s.Title, 40), s.UpdatedAt.Local().Format("01-02 15:04"), s.ID)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.Provider, s.Status, ctrl, trunc(s.Repo, 60), trunc(s.Title, 40), s.UpdatedAt.Local().Format("01-02 15:04"), s.ID)
 			}
 			return tw.Flush()
 		},
@@ -252,12 +253,19 @@ func sessionsCmd() *cobra.Command {
 	return c
 }
 
+// trunc clips s to n runes and drops control sequences, since titles and
+// device names come from transcripts and phones, not from the owner.
 func trunc(s string, n int) string {
-	r := []rune(s)
+	r := make([]rune, 0, len(s))
+	for _, c := range s {
+		if unicode.IsPrint(c) {
+			r = append(r, c)
+		}
+	}
 	if len(r) > n {
 		return string(r[:n-1]) + "…"
 	}
-	return s
+	return string(r)
 }
 
 func statusCmd() *cobra.Command {
@@ -341,7 +349,7 @@ func printConnections(cs []server.ConnAttempt, max int) {
 	fmt.Fprintln(tw, "  TIME\tFROM\tPATH\tRESULT\tDEVICE")
 	for _, c := range cs {
 		dev := firstNonEmpty(c.Name, c.Device, "-")
-		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", c.At.Local().Format("15:04:05"), c.From, c.Path, c.Result, dev)
+		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\n", c.At.Local().Format("15:04:05"), c.From, c.Path, c.Result, trunc(dev, 64))
 	}
 	tw.Flush()
 }

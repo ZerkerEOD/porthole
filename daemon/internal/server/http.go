@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
@@ -166,10 +167,33 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-var pairLimiter = rate.NewLimiter(rate.Every(2*time.Second), 10)
+// Pairing is throttled per source so one noisy host cannot starve the
+// owner's own attempt; pairGlobal is the backstop across all sources.
+var (
+	pairGlobal = rate.NewLimiter(rate.Every(100*time.Millisecond), 100)
+	pairMu     sync.Mutex
+	pairPer    = map[string]*rate.Limiter{}
+)
+
+func pairAllow(host string) bool {
+	if !pairGlobal.Allow() {
+		return false
+	}
+	pairMu.Lock()
+	defer pairMu.Unlock()
+	l := pairPer[host]
+	if l == nil {
+		if len(pairPer) >= 1024 {
+			pairPer = map[string]*rate.Limiter{}
+		}
+		l = rate.NewLimiter(rate.Every(2*time.Second), 10)
+		pairPer[host] = l
+	}
+	return l.Allow()
+}
 
 func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
-	if !pairLimiter.Allow() {
+	if !pairAllow(remoteHost(r.RemoteAddr)) {
 		s.conns.add(ConnAttempt{From: remoteHost(r.RemoteAddr), Path: PathPair, Result: ResultRateLimited})
 		http.Error(w, "slow down", http.StatusTooManyRequests)
 		return
@@ -274,6 +298,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		idle.Reset(readDeadline)
+		// Only a file.put may exceed maxMessageBytes; refuse anything else
+		// before parsing it.
+		if len(data) > maxMessageBytes && !bytes.Contains(data[:min(len(data), 256)], []byte(`"type":"file.put"`)) {
+			c.reply("", false, "message too large", nil)
+			continue
+		}
 		var m Message
 		if err := json.Unmarshal(data, &m); err != nil {
 			c.reply("", false, "bad json", nil)

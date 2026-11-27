@@ -69,3 +69,16 @@ func TestInstallCodex(t *testing.T) {
 		t.Fatal("expected conflict error")
 	}
 }
+
+func TestShellQuote(t *testing.T) {
+	if q := shellQuote("/home/u/.local/bin/porthole"); q != "/home/u/.local/bin/porthole" {
+		t.Fatalf("plain path changed: %q", q)
+	}
+	q := shellQuote("/Users/a b/it's/porthole")
+	if q != `'/Users/a b/it'\''s/porthole'` {
+		t.Fatalf("quoted: %q", q)
+	}
+	if !isOurs(q+" hook") || !isOurs("/usr/bin/porthole hook") || isOurs("/usr/bin/other hook") {
+		t.Fatal("isOurs")
+	}
+}
