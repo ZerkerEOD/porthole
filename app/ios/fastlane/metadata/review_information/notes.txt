@@ -14,6 +14,6 @@ Permissions: camera for scanning the daemon's pairing QR code; notifications for
 
 Encryption: the app uses standard algorithms only (TLS, X25519, HKDF-SHA256, XChaCha20-Poly1305); it qualifies for the export-compliance exemption and ITSAppUsesNonExemptEncryption is set to false.
 
-A 60-second recording of the demo flow: <RECORDING URL>
+A 60-second recording of the demo flow: https://zerkersec.io/porthole/demo.mp4
 
 Contact: privacy@zerkersec.io
